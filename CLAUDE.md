@@ -23,7 +23,7 @@ python scripts/python/compute_indices.py
 # 3. Classify hotspots and save raster
 python scripts/python/hotspot_model.py
 
-# 4. Regenerate showcase figures for GitHub Pages
+# 4. Regenerate showcase figures for GitHub Pages (hämtar bakgrundskarta; kräver nätverk)
 python scripts/python/generate_showcase.py
 ```
 

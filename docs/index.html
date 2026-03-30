@@ -129,11 +129,16 @@
       border-color: var(--green-light);
     }
 
-    /* ── Steps ── */
+    /* ── Steps (3 kolumner på bred skärm → 3+3 kort) ── */
     .steps-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
       gap: 1.2rem;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    }
+    @media (min-width: 960px) {
+      .steps-grid {
+        grid-template-columns: repeat(3, 1fr);
+      }
     }
     .step-card {
       background: var(--bg-card);
@@ -159,8 +164,10 @@
     .step-card h3 { font-size: 1rem; color: var(--green-dark); margin-bottom: .4rem; }
     .step-card p { font-size: .88rem; color: var(--text-muted); }
     .step-card .tag-pill {
-      display: inline-block;
+      display: table;
       margin-top: .7rem;
+      margin-left: auto;
+      margin-right: auto;
       background: var(--green-pale);
       color: var(--green-mid);
       border-radius: 20px;
@@ -402,7 +409,7 @@
 <section id="karta">
   <div class="container">
     <h2>Exempelkarta – Fiby urskog, Uppland</h2>
-    <p class="section-lead">Testområde: Fiby urskog (~10 km²) — ett av Sveriges bäst bevarade gammelskogslandskap. Kartan nedan visar utfallet av EO-screeningen och hur fältinsatserna bör prioriteras.</p>
+    <p class="section-lead">Testområde: Fiby urskog (~10 km²) — ett av Sveriges bäst bevarade gammelskogslandskap. Kartan visar geodatabaserad prioritering och hur fältinsatserna bör fördelas. Den lilla inbäddade kartan uppe till vänster visar var området ligger (bakgrundskarta © OpenStreetMap-bidragsgivare via CartoDB).</p>
 
     <div class="map-wrap">
       <img src="assets/hotspot_showcase.png"

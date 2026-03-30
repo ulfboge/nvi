@@ -10,7 +10,6 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import matplotlib.patches as mpatches
 import matplotlib.gridspec as gridspec
-from matplotlib.ticker import NullFormatter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -21,12 +20,19 @@ DOCS_ASSETS.mkdir(parents=True, exist_ok=True)
 
 try:
     import rasterio
+    from rasterio.warp import transform_bounds
 except ImportError:
     sys.exit("Saknar rasterio – kor: pip install rasterio")
 
 
+def _hotspot_class_path() -> Path:
+    p = RASTERS_DIR / f"{AOI_NAME}_hotspot_class.tif"
+    if p.exists():
+        return p
+    return PROC_DIR / f"{AOI_NAME}_hotspot_class.tif"
+
+
 def load(suffix: str) -> np.ndarray:
-    # hotspot_class sparas i outputs/rasters/, övriga i data/processed/
     p = RASTERS_DIR / f"{AOI_NAME}_{suffix}.tif"
     if not p.exists():
         p = PROC_DIR / f"{AOI_NAME}_{suffix}.tif"
@@ -38,8 +44,73 @@ def load(suffix: str) -> np.ndarray:
     return arr
 
 
+def _add_overview_inset(ax_parent, tif_path: Path) -> None:
+    """AOI-outline på ljus webbkarta (CartoDB Positron, OSM-data). Kräver nätverk."""
+    if not tif_path.exists():
+        return
+    try:
+        import contextily as ctx
+    except ImportError:
+        print("  [info] Installera contextily för översiktskarta: pip install contextily")
+        return
+
+    with rasterio.open(tif_path) as src:
+        b = src.bounds
+        crs = src.crs
+
+    left, bottom, right, top = transform_bounds(
+        crs, "EPSG:3857", b.left, b.bottom, b.right, b.top
+    )
+    w, h = right - left, top - bottom
+    pad = max(w, h) * 0.2
+
+    ax_in = ax_parent.inset_axes([0.02, 0.56, 0.34, 0.40])
+    ax_in.set_xlim(left - pad, right + pad)
+    ax_in.set_ylim(bottom - pad, top + pad)
+    ax_in.set_aspect("equal", adjustable="box")
+
+    try:
+        ctx.add_basemap(
+            ax_in,
+            crs="EPSG:3857",
+            source=ctx.providers.CartoDB.Positron,
+            zoom="auto",
+        )
+    except Exception as exc:
+        print(f"  [varning] Översiktskarta utelämnad ({exc})")
+        ax_in.remove()
+        return
+
+    ax_in.add_patch(
+        mpatches.Rectangle(
+            (left, bottom),
+            w,
+            h,
+            fill=False,
+            edgecolor="#c1121f",
+            linewidth=2.4,
+            zorder=10,
+        )
+    )
+    ax_in.set_xticks([])
+    ax_in.set_yticks([])
+    for s in ax_in.spines.values():
+        s.set_edgecolor("#1b4332")
+        s.set_linewidth(1.0)
+    ax_in.text(
+        0.5,
+        -0.12,
+        "Läge: Fiby urskog (AOI)",
+        transform=ax_in.transAxes,
+        ha="center",
+        fontsize=8,
+        color="#1b4332",
+        fontweight="bold",
+    )
+
+
 def make_hotspot_figure() -> None:
-    """Stor showcase-figur: hotspot-karta + tre delindex."""
+    """Stor showcase-figur: hotspot-karta + tre delindex + översiktskarta."""
 
     cls       = np.nan_to_num(load("hotspot_class"))
     score     = np.nan_to_num(load("nvi_score"))
@@ -47,12 +118,26 @@ def make_hotspot_figure() -> None:
     cont      = np.nan_to_num(load("continuity_index"))
     moisture  = np.nan_to_num(load("moisture_index"))
 
-    # ── Layout ────────────────────────────────────────────────────────────────
-    fig = plt.figure(figsize=(18, 11), facecolor="#f5f7f5")
-    gs  = gridspec.GridSpec(
-        2, 4,
-        left=0.02, right=0.98, top=0.88, bottom=0.06,
-        wspace=0.04, hspace=0.22
+    # Rubrik ovanför rutnätet; datakällor längst ned (undviker överlapp med karttitlar)
+    fig = plt.figure(figsize=(18, 11.5), facecolor="#f5f7f5")
+    fig.suptitle(
+        "Geodatadriven naturvärdesinventering  |  Testområde: Fiby urskog, Uppland",
+        fontsize=14,
+        fontweight="bold",
+        color="#1b4332",
+        y=0.97,
+    )
+
+    gs = gridspec.GridSpec(
+        2,
+        4,
+        figure=fig,
+        left=0.02,
+        right=0.98,
+        top=0.89,
+        bottom=0.11,
+        wspace=0.04,
+        hspace=0.20,
     )
 
     # ── Hotspot-karta (stor, vänster) ─────────────────────────────────────────
@@ -63,14 +148,21 @@ def make_hotspot_figure() -> None:
 
     ax_main.imshow(
         np.where(cls > 0, cls, np.nan),
-        cmap=cmap_cls, norm=norm_cls, interpolation="nearest",
-        aspect="equal"
+        cmap=cmap_cls,
+        norm=norm_cls,
+        interpolation="nearest",
+        aspect="equal",
     )
     ax_main.set_title(
-        "Hotspot-klassifikation\nNVI-prioritering baserad på nationell geodata",
-        fontsize=13, fontweight="bold", pad=10, color="#1b4332"
+        "Hotspot-klassifikation\n(nationell geodata)",
+        fontsize=12,
+        fontweight="bold",
+        pad=8,
+        color="#1b4332",
     )
     ax_main.axis("off")
+
+    _add_overview_inset(ax_main, _hotspot_class_path())
 
     legend_patches = [
         mpatches.Patch(color="#d73027", label="Klass 3 – Hotspot (intensiv inventering)"),
@@ -79,9 +171,12 @@ def make_hotspot_figure() -> None:
     ]
     ax_main.legend(
         handles=legend_patches,
-        loc="lower left", fontsize=10,
-        framealpha=0.92, edgecolor="#ccc",
-        title="NVI-prioritet", title_fontsize=10
+        loc="lower left",
+        fontsize=10,
+        framealpha=0.92,
+        edgecolor="#ccc",
+        title="NVI-prioritet",
+        title_fontsize=10,
     )
 
     # ── Delindex (höger, 2x2) ─────────────────────────────────────────────────
@@ -95,25 +190,24 @@ def make_hotspot_figure() -> None:
     for i, (arr, title, cmap, vmin, vmax) in enumerate(panels):
         row, col = divmod(i, 2)
         ax = fig.add_subplot(gs[row, col + 2])
-        im = ax.imshow(arr, cmap=cmap, vmin=vmin, vmax=vmax,
-                       interpolation="bilinear", aspect="equal")
-        ax.set_title(title, fontsize=10, fontweight="bold",
-                     pad=5, color="#1b4332")
+        im = ax.imshow(
+            arr, cmap=cmap, vmin=vmin, vmax=vmax,
+            interpolation="bilinear", aspect="equal",
+        )
+        ax.set_title(title, fontsize=10, fontweight="bold", pad=5, color="#1b4332")
         ax.axis("off")
         cb = plt.colorbar(im, ax=ax, fraction=0.04, pad=0.02)
         cb.ax.tick_params(labelsize=8)
 
-    # ── Rubrik ────────────────────────────────────────────────────────────────
     fig.text(
-        0.5, 0.955,
-        "Geodatadriven naturvärdesinventering  |  Testområde: Fiby urskog, Uppland",
-        ha="center", fontsize=15, fontweight="bold", color="#1b4332"
-    )
-    fig.text(
-        0.5, 0.925,
-        "Datakällor: NMD 2023 (Naturvårdsverket)  ·  GSD-Höjddata 1m (Lantmäteriet)  "
-        "·  Avverkningsanmälningar (Skogsstyrelsen)",
-        ha="center", fontsize=9, color="#555", style="italic"
+        0.5,
+        0.028,
+        "Datakällor: NMD 2023 (Naturvårdsverket)  ·  GSD-Höjddata 1 m (Lantmäteriet)  ·  "
+        "Avverkningsanmälningar (Skogsstyrelsen)",
+        ha="center",
+        fontsize=9,
+        color="#555",
+        style="italic",
     )
 
     out = DOCS_ASSETS / "hotspot_showcase.png"
@@ -126,7 +220,7 @@ def make_method_diagram() -> None:
     """Enkel processkarta – 6 steg som pil-diagram."""
 
     steps = [
-        ("1", "EO-screening",      "NMD 2023 · Lidar DTM\nSkogsstyrelsen",  "#2d6a4f"),
+        ("1", "Geodata-screening", "NMD 2023 · Lidar DTM\nSkogsstyrelsen",  "#2d6a4f"),
         ("2", "Hotspot-modell",    "Struktur + Kontinuitet\n+ Fukt (viktat)", "#40916c"),
         ("3", "Sampling-design",   "Stratifiering\nHotspot / Mellan / Låg",  "#52b788"),
         ("4", "Fältinventering",   "Riktad NVI\nSignalarter · Substrat",     "#74c69d"),

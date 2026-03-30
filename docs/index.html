@@ -312,10 +312,9 @@
   <h1>Remote sensing-driven biodiversity screening + <em>targeted NVI</em></h1>
   <p>En reproducerbar hybridmetod som kombinerar satellitdata och nationella geodata för att prioritera och effektivisera naturvärdesinventering i fält.</p>
   <div class="hero-badges">
-    <span class="badge">Sentinel-2 / Sentinel-1</span>
-    <span class="badge">NMD 2023</span>
-    <span class="badge">Lantmäteriet Lidar</span>
-    <span class="badge">Skogsstyrelsen</span>
+    <span class="badge">NMD 2023 (Naturvårdsverket)</span>
+    <span class="badge">GSD-Höjddata 1 m (Lantmäteriet)</span>
+    <span class="badge">Avverkningsanmälningar (Skogsstyrelsen)</span>
     <span class="badge">Python · GEE · QGIS</span>
   </div>
 </div>
@@ -356,8 +355,8 @@
       <div class="step-card">
         <div class="step-num">1</div>
         <h3>EO-screening (pre-NVI)</h3>
-        <p>Satellitdata och nationella geodata analyseras för att identifiera potentiella värdekärnor — utan ett enda fältsteg. Fokus på struktur, kontinuitet och hydrologi.</p>
-        <span class="tag-pill">Sentinel-2 · Sentinel-1 · NMD · Lidar</span>
+        <p>Svenska nationella geodata analyseras för att identifiera potentiella värdekärnor — utan ett enda fältsteg. Fokus på skogsstruktur, kontinuitet och hydrologi.</p>
+        <span class="tag-pill">NMD 2023 · Lidar DTM · Skogsstyrelsen</span>
       </div>
 
       <div class="step-card">
@@ -472,24 +471,10 @@
           <td><span class="chip">Öppen data</span></td>
         </tr>
         <tr>
-          <td><span class="source-name">Sentinel-2 SR (NDVI, textur, säsong)</span></td>
-          <td>ESA / Copernicus</td>
+          <td><span class="source-name">Nationell Marktäckedata (NMD) 2023 – Trädslag</span></td>
+          <td>Naturvårdsverket</td>
           <td>10 m</td>
-          <td>Strukturindex – vegetationsindex och heterogenitet</td>
-          <td><span class="chip">Öppen data</span></td>
-        </tr>
-        <tr>
-          <td><span class="source-name">Sentinel-1 GRD (SAR backscatter)</span></td>
-          <td>ESA / Copernicus</td>
-          <td>10 m</td>
-          <td>Strukturindex – biomassaproxy, fuktdetektion</td>
-          <td><span class="chip">Öppen data</span></td>
-        </tr>
-        <tr>
-          <td><span class="source-name">Global Forest Change 2023</span></td>
-          <td>Hansen / UMD</td>
-          <td>30 m</td>
-          <td>Kontinuitetsproxy (fallback om Skogsstyrelsen saknas)</td>
+          <td>Strukturindex – ädellövsbonus (ek, bok, ask m.fl.)</td>
           <td><span class="chip">Öppen data</span></td>
         </tr>
       </tbody>
@@ -545,7 +530,7 @@
         <tr>
           <td class="dim">Historisk markanvändning</td>
           <td class="bad">Ofta ignoreras</td>
-          <td class="good">Integrerad via GFC / Skogsstyrelsen</td>
+          <td class="good">Integrerad via Skogsstyrelsens avverkningsdata</td>
         </tr>
         <tr>
           <td class="dim">NVI-klasskompatibilitet</td>
@@ -592,7 +577,7 @@
     <a href="https://github.com/ulfboge/nvi" target="_blank">GitHub</a>
   </p>
   <p style="margin-top:.5rem; font-size:.8rem; opacity:.6;">
-    Datakällor: Naturvårdsverket, Lantmäteriet, Skogsstyrelsen, ESA Copernicus &nbsp;·&nbsp; Öppen data
+    Datakällor: Naturvårdsverket (NMD), Lantmäteriet (GSD-Höjddata), Skogsstyrelsen &nbsp;·&nbsp; Öppen data
   </p>
 </footer>
 

@@ -67,7 +67,7 @@ def make_hotspot_figure() -> None:
         aspect="equal"
     )
     ax_main.set_title(
-        "Hotspot-klassifikation\nNVI-prioritering baserad på EO-screening",
+        "Hotspot-klassifikation\nNVI-prioritering baserad på nationell geodata",
         fontsize=13, fontweight="bold", pad=10, color="#1b4332"
     )
     ax_main.axis("off")
@@ -106,7 +106,7 @@ def make_hotspot_figure() -> None:
     # ── Rubrik ────────────────────────────────────────────────────────────────
     fig.text(
         0.5, 0.955,
-        "EO-driven Naturvärdesinventering  |  Testområde: Fiby urskog, Uppland",
+        "Geodatadriven naturvärdesinventering  |  Testområde: Fiby urskog, Uppland",
         ha="center", fontsize=15, fontweight="bold", color="#1b4332"
     )
     fig.text(
@@ -131,7 +131,7 @@ def make_method_diagram() -> None:
         ("3", "Sampling-design",   "Stratifiering\nHotspot / Mellan / Låg",  "#52b788"),
         ("4", "Fältinventering",   "Riktad NVI\nSignalarter · Substrat",     "#74c69d"),
         ("5", "Kvantifiering",     "Naturvärdesindex\nf(struktur+kont.+art)", "#95d5b2"),
-        ("6", "Reproducerbarhet",  "GEE · Python · QGIS\nNytt område = ny kör", "#b7e4c7"),
+        ("6", "Reproducerbarhet",  "Python · QGIS\nNytt område = ny kör", "#b7e4c7"),
     ]
 
     fig, ax = plt.subplots(figsize=(14, 3.2), facecolor="#f5f7f5")
@@ -173,7 +173,7 @@ def make_method_diagram() -> None:
 
     fig.text(
         0.5, 0.97,
-        "Metodöversikt: EO-driven NVI-workflow",
+        "Metodöversikt: nationell geodata → riktad NVI",
         ha="center", fontsize=11, fontweight="bold", color="#1b4332"
     )
 

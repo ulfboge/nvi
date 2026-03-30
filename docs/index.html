@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>EO-driven Naturvärdesinventering – Johan Karlsson</title>
+  <title>EO-driven naturvärdesinventering – Johan Karlsson</title>
   <style>
     :root {
       --green-dark:  #1b4332;
@@ -308,8 +308,8 @@
 
 <!-- ── Hero ── -->
 <div class="hero">
-  <div class="tag">GIS &nbsp;·&nbsp; Remote Sensing &nbsp;·&nbsp; Naturvård</div>
-  <h1>Remote sensing-driven biodiversity screening + <em>targeted NVI</em></h1>
+  <div class="tag">GIS &nbsp;·&nbsp; Fjärranalys &nbsp;·&nbsp; Naturvård</div>
+  <h1>Fjärranalysdriven prioritering och <em>riktad NVI</em></h1>
   <p>En reproducerbar hybridmetod som bygger på svenska nationella öppna geodata för att prioritera och effektivisera naturvärdesinventering i fält.</p>
   <div class="hero-badges">
     <span class="badge">NMD 2023 (Naturvårdsverket)</span>
@@ -344,17 +344,17 @@
 <section id="metod">
   <div class="container">
     <h2>Metodöversikt</h2>
-    <p class="section-lead">Arbetsflödet består av sex steg — från automatiserad EO-screening till fältverifiering och reproducerbar klassning.</p>
+    <p class="section-lead">Arbetsflödet består av sex steg — från automatiserad screening med nationell geodata till fältverifiering och reproducerbar klassning.</p>
 
     <div class="diagram-wrap">
-      <img src="assets/method_diagram.png" alt="Metoddiagram – 6 steg i EO-driven NVI-workflow">
+      <img src="assets/method_diagram.png" alt="Metoddiagram – sex steg från nationell geodata till riktad NVI">
     </div>
 
     <div class="steps-grid">
 
       <div class="step-card">
         <div class="step-num">1</div>
-        <h3>EO-screening (pre-NVI)</h3>
+        <h3>Geodatabaserad screening (pre-NVI)</h3>
         <p>Svenska nationella geodata analyseras för att identifiera potentiella värdekärnor — utan ett enda fältsteg. Fokus på skogsstruktur, kontinuitet och hydrologi.</p>
         <span class="tag-pill">NMD 2023 · Lidar DTM · Skogsstyrelsen</span>
       </div>
@@ -406,7 +406,7 @@
 
     <div class="map-wrap">
       <img src="assets/hotspot_showcase.png"
-           alt="EO-driven NVI hotspot-karta och delindex – Fiby urskog">
+           alt="NVI hotspot-karta och delindex baserat på NMD, lidar och avverkningsdata – Fiby urskog">
     </div>
 
     <div class="map-legend">
@@ -436,7 +436,7 @@
 <section id="data">
   <div class="container">
     <h2>Datakällor</h2>
-    <p class="section-lead">Alla datakällor är svenska öppna geodata utan licensavgift.</p>
+    <p class="section-lead">Den publicerade pipelinen använder enbart svenska nationella öppna geodata utan licensavgift.</p>
 
     <table class="data-table">
       <thead>
@@ -450,10 +450,10 @@
       </thead>
       <tbody>
         <tr>
-          <td><span class="source-name">NMD 2023 – Basskikt + Trädslag + Objekthöjd</span></td>
+          <td><span class="source-name">NMD 2023 – basskikt, trädslag och objekthöjd</span></td>
           <td>Naturvårdsverket</td>
           <td>10 m</td>
-          <td>Strukturindex – skogsklasser, trädslag (ädellöv), trädhöjd</td>
+          <td>Strukturindex – skogsklasser, ädellövsträd (ek, bok, ask m.fl.), trädhöjd</td>
           <td><span class="chip">Öppen data</span></td>
         </tr>
         <tr>
@@ -468,13 +468,6 @@
           <td>Skogsstyrelsen</td>
           <td>Polygon</td>
           <td>Kontinuitetsindex – störningshistorik sedan 2000-talet</td>
-          <td><span class="chip">Öppen data</span></td>
-        </tr>
-        <tr>
-          <td><span class="source-name">Nationell Marktäckedata (NMD) 2023 – Trädslag</span></td>
-          <td>Naturvårdsverket</td>
-          <td>10 m</td>
-          <td>Strukturindex – ädellövsbonus (ek, bok, ask m.fl.)</td>
           <td><span class="chip">Öppen data</span></td>
         </tr>
       </tbody>
@@ -505,7 +498,7 @@
         <tr>
           <td class="dim">Spatial täckning</td>
           <td class="bad">Begränsad</td>
-          <td class="good">Nästan fullständig via EO-screening</td>
+          <td class="good">Nästan fullständig via geodatabaserad screening</td>
         </tr>
         <tr>
           <td class="dim">Urvalsförskjutning (bias)</td>

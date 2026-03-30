@@ -111,8 +111,8 @@ def make_hotspot_figure() -> None:
     )
     fig.text(
         0.5, 0.925,
-        "Datakällor: NMD 2023 (Naturvårdsverket)  ·  GSD-Höjddata (Lantmäteriet)  "
-        "·  Avverkningsanmälningar (Skogsstyrelsen)  ·  Sentinel-2/1 (ESA)",
+        "Datakällor: NMD 2023 (Naturvårdsverket)  ·  GSD-Höjddata 1m (Lantmäteriet)  "
+        "·  Avverkningsanmälningar (Skogsstyrelsen)",
         ha="center", fontsize=9, color="#555", style="italic"
     )
 
@@ -126,7 +126,7 @@ def make_method_diagram() -> None:
     """Enkel processkarta – 6 steg som pil-diagram."""
 
     steps = [
-        ("1", "EO-screening",      "Sentinel-2/1\nNMD · Lidar · Hansen",  "#2d6a4f"),
+        ("1", "EO-screening",      "NMD 2023 · Lidar DTM\nSkogsstyrelsen",  "#2d6a4f"),
         ("2", "Hotspot-modell",    "Struktur + Kontinuitet\n+ Fukt (viktat)", "#40916c"),
         ("3", "Sampling-design",   "Stratifiering\nHotspot / Mellan / Låg",  "#52b788"),
         ("4", "Fältinventering",   "Riktad NVI\nSignalarter · Substrat",     "#74c69d"),

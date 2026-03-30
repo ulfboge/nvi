@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo does
 
-EO-driven Naturvärdesinventering (NVI): a reproducible pipeline that uses Swedish open geodata to produce a prioritized hotspot map for targeted field inventory. Three sub-indices (structure 40%, continuity 40%, moisture 20%) are combined into a weighted NVI score and classified into three priority classes (1–3).
+Geodata-driven Naturvärdesinventering (NVI): a reproducible pipeline that uses **Swedish open geodata** (primary path) to produce a prioritized hotspot map for targeted field inventory. Three sub-indices (structure 40%, continuity 40%, moisture 20%) are combined into a weighted NVI score and classified into three priority classes (1–3).
 
-A static GitHub Pages site (`docs/index.html`) showcases the method and outputs for use in job applications. It embeds two generated figures from `docs/assets/`.
+A static GitHub Pages site (`docs/index.html`) showcases the **primary** data story (NMD, Lantmäteriet, Skogsstyrelsen). The Python code can still use **optional** fallbacks (GEE exports, Hansen, Copernicus DEM) when those folders are populated—see below.
 
 ## Running the pipeline
 
@@ -39,7 +39,7 @@ All scripts import from `config.py`. Key settings to change when adapting to a n
 
 API key for Lantmäteriet goes in `.env` at repo root as `LANTMATERIET_API_KEY`. The `.env` is loaded automatically by `config.py` via `python-dotenv`.
 
-## Data sources and paths
+## Data sources and paths (primary)
 
 | Source | Local path | What it feeds |
 |---|---|---|
@@ -48,15 +48,18 @@ API key for Lantmäteriet goes in `.env` at repo root as `LANTMATERIET_API_KEY`.
 | NMD Trädslag | `E:/nmd/NMD2023_Tradslag_v1_0/` | Strukturindex (ädellövsbonus) |
 | Skogsstyrelsen avverkningar | `data/raw/skogsstyrelsen/` | Kontinuitetsindex |
 | Lantmäteriet lidar DTM | `data/raw/lantmateriet/` | Fuktindex (TWI) |
-| GEE exports (optional) | `data/raw/gee_exports/` | NDVI fallback |
 
-## Fallback chains
+## Optional inputs and fallbacks (`compute_indices.py`)
 
-Each index has a fallback chain so the pipeline runs with partial data:
+The pipeline tries sources **in order** and uses the first that has data on disk.
 
-- **Strukturindex**: SLU Grunddata → GEE NDVI export → NMD Basskikt+Trädslag+Objekthöjd → Hansen treecover (global fallback)
-- **Kontinuitetsindex**: Skogsstyrelsen avverkningsraster → GEE NDVI stability
-- **Fuktindex**: Lantmäteriet lidar DTM (TWI) → Copernicus DEM fallback
+- **Strukturindex**: SLU Skogliga Grunddata (biomassa/höjd) → GEE export in `data/raw/gee_exports/` (*Delindex* GeoTIFF) → **NMD** basskikt + trädslag + objekthöjd → Hansen treecover in `data/raw/hansen/` (global fallback)
+
+- **Kontinuitetsindex**: Skogsstyrelsen avverkningsraster → GEE export (NDVI stability bands, if multi-band file) → neutral 0.5 if nothing found
+
+- **Fuktindex**: Lantmäteriet DTM (TWI) → NMD våtmark-only proxy → Copernicus DEM in `data/raw/dem/` → neutral 0.5
+
+The public showcase describes the **NMD + Lantmäteriet + Skogsstyrelsen** path only; optional/fallback rows are for developers extending or running with partial Swedish data.
 
 ## Coordinate systems
 
@@ -68,6 +71,6 @@ All Swedish datasets are in SWEREF99TM (EPSG:3006). Global fallback datasets are
 
 Enable Pages: GitHub repo Settings → Pages → branch `main`, folder `/docs`.
 
-## GEE script
+## Optional: Google Earth Engine script
 
-`scripts/gee/01_nvi_screening.js` is a standalone Google Earth Engine script. Paste it into the GEE Code Editor. It uses the same AOI and weights as the Python pipeline but uses Sentinel-2/1 and SRTM as sources. Exports go to Google Drive and can then be placed in `data/raw/gee_exports/` for use as fallbacks.
+`scripts/gee/01_nvi_screening.js` is a **standalone** experiment: paste into the GEE Code Editor. It mirrors AOI and weights but uses Sentinel-2/1 and SRTM. Exports go to Google Drive; place rasters under `data/raw/gee_exports/` if you want them to participate in the Python fallback chain above. It is **not** required for the Swedish-only workflow highlighted on the site.

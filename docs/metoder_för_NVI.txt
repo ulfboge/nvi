@@ -1,432 +1,63 @@
-
-
-
-
-Bra fråga – här kan du verkligen använda din styrka inom GIS/EO och göra något som är både mer robust och mer effektivt än klassisk NVI.
-
-Jag skulle lägga upp det som en hybridmetod: “EO-driven NVI + riktad fältinventering”.
-
-🧭 1. Övergripande strategi (din edge)
-Istället för:
-👉 “gå ut och leta naturvärden”
-
-Gör:
-👉 modellera var naturvärden sannolikt finns → verifiera i fält
-
-🛰️ 2. Steg 1 – Remote sensing screening (pre-NVI)
-🎯 Syfte:
-Identifiera potentiella värdekärnor
-
-Minimera “random walking in forest”
-
-📊 Datakällor (du kan detta redan):
-Sentinel-2 (NDVI, säsongsdynamik)
-
-Sentinel-1 (struktur/fukt)
-
-Lidar (om finns) → struktur (guld)
-
-Nationella marktäckedata (t.ex. SLU, Copernicus)
-
-Historiska data (Hansen, CCDC etc.)
-
-🔍 Vad du analyserar (konkret)
-1. Struktur (viktigast)
-hög biomassa
-
-heterogenitet
-
-höjdvariation (om lidar)
-
-👉 proxy för:
-
-gamla skogar
-
-död ved
-
-komplexitet
-
-2. Kontinuitet
-stabil NDVI över tid
-
-låg störning (GFC / RADD)
-
-👉 proxy för:
-
-lång skoglig kontinuitet
-
-3. Kantzoner & gradienter
-bryn
-
-våtmarker
-
-topografi
-
-👉 hög biodiversitet
-
-4. Fukt / hydrologi
-Sentinel-1
-
-topografiska index (TWI)
-
-👉 t.ex. alskogar, rikkärr
-
-5. Land-use history
-gamla flygbilder
-
-förändringsanalys
-
-👉 extremt underskattat i klassisk NVI
-
-🧠 Output från steg 1
-Du skapar:
-
-🔴 “Hotspots” (hög sannolikhet naturvärde)
-
-🟡 “Mellanområden”
-
-🔵 “Låg prioritet”
-
-👉 Detta är din sampling design
-
-🌿 3. Steg 2 – Stratifierad fältinventering
-Nu gör du något smartare än rapporten:
-
-Istället för:
-“lite här och där”
-
-Gör:
-👉 Stratifierad sampling baserat på modell
-
-📍 Fältupplägg
-🔴 Hotspots
-intensiv inventering
-
-alla artgrupper
-
-dokumentation (GPS, foto, struktur)
-
-🟡 Mellan
-stickprov
-
-🔵 Låg
-snabb verifiering
-
-🔬 Metod (behåll från klassisk NVI)
-frisök
-
-substratfokus
-
-signalarter
-
-rödlistade arter
-
-👉 men nu riktat, inte slumpmässigt
-
-🧮 4. Steg 3 – Kvantifiering (din stora upgrade)
-Här slår du klassisk NVI:
-
-Skapa variabler per objekt:
-strukturindex (från EO)
-
-kontinuitetsindex
-
-artfynd (fält)
-
-död ved (fält eller proxy)
-
-👉 kombinera i en modell:
-
-Naturvärdesindex = f(struktur + kontinuitet + arter)
-
-🗺️ 5. Steg 4 – Objektavgränsning (GIS-first)
-Istället för:
-👉 rita i fält
-
-Gör:
-👉 segmentering i GIS + justering i fält
-
-Exempel:
-
-OBIA / segmentering
-
-kluster av höga värden
-
-📊 6. Steg 5 – Klassning (NVI-kompatibel)
-Du översätter till:
-
-klass 1–4
-
-MEN:
-👉 med spårbar logik
-
-🔁 7. Steg 6 – Reproducerbarhet
-Det här är din killer feature:
-
-script i GEE/QGIS/Python
-
-samma metod → nytt område
-
-upprepningsbart över tid
-
-👉 klassisk NVI klarar inte detta
-
-⚖️ Vad du gör bättre än rapporten
-Dimension	Klassisk rapport	Din metod
-Täthet	ojämn	optimerad
-Täckning	begränsad	nästan full
-Bias	hög	reducerad
-Reproducerbarhet	låg	hög
-Skalbarhet	låg	hög
-Analysdjup	medel	hög
-🔥 Det viktigaste (kort sagt)
-Du går från:
-
-👉 “inventera vad du råkar hitta”
-
-till:
-
-👉 “modellera → testa → verifiera”
-
-💡 Bonus – exakt hur du kan paketera detta (jobbmässigt)
-Det här är väldigt säljbart:
-
-👉 “Remote sensing–driven biodiversity screening + targeted NVI”
-
-Passar perfekt för:
-
-ARR-projekt
-
-Länsstyrelsen
-
-konsultbolag
-
-naturvård/kompensation
-
-🚀 Vill du ta nästa steg?
-Jag kan hjälpa dig konkret med:
-
-👉 en GEE-workflow (kod) för att skapa hotspots
-👉 ett fältprotokoll anpassat till din metod
-👉 hur du skriver detta i CV/intervju (väldigt starkt case)
-
-Säg till vad du vill göra 👍
-
-
-
-
-
-Metoder för NVI
-Du tittar på användargenererat innehåll som kanske är overifierat eller skadligt.
-Anmäl
-
-Bra fråga – här kan du verkligen använda din styrka inom GIS/EO och göra något som är både mer robust och mer effektivt än klassisk NVI.
-
-Jag skulle lägga upp det som en hybridmetod: “EO-driven NVI + riktad fältinventering”.
-
-🧭 1. Övergripande strategi (din edge)
-Istället för:
-👉 “gå ut och leta naturvärden”
-
-Gör:
-👉 modellera var naturvärden sannolikt finns → verifiera i fält
-
-🛰️ 2. Steg 1 – Remote sensing screening (pre-NVI)
-🎯 Syfte:
-Identifiera potentiella värdekärnor
-
-Minimera “random walking in forest”
-
-📊 Datakällor (du kan detta redan):
-Sentinel-2 (NDVI, säsongsdynamik)
-
-Sentinel-1 (struktur/fukt)
-
-Lidar (om finns) → struktur (guld)
-
-Nationella marktäckedata (t.ex. SLU, Copernicus)
-
-Historiska data (Hansen, CCDC etc.)
-
-🔍 Vad du analyserar (konkret)
-1. Struktur (viktigast)
-hög biomassa
-
-heterogenitet
-
-höjdvariation (om lidar)
-
-👉 proxy för:
-
-gamla skogar
-
-död ved
-
-komplexitet
-
-2. Kontinuitet
-stabil NDVI över tid
-
-låg störning (GFC / RADD)
-
-👉 proxy för:
-
-lång skoglig kontinuitet
-
-3. Kantzoner & gradienter
-bryn
-
-våtmarker
-
-topografi
-
-👉 hög biodiversitet
-
-4. Fukt / hydrologi
-Sentinel-1
-
-topografiska index (TWI)
-
-👉 t.ex. alskogar, rikkärr
-
-5. Land-use history
-gamla flygbilder
-
-förändringsanalys
-
-👉 extremt underskattat i klassisk NVI
-
-🧠 Output från steg 1
-Du skapar:
-
-🔴 “Hotspots” (hög sannolikhet naturvärde)
-
-🟡 “Mellanområden”
-
-🔵 “Låg prioritet”
-
-👉 Detta är din sampling design
-
-🌿 3. Steg 2 – Stratifierad fältinventering
-Nu gör du något smartare än rapporten:
-
-Istället för:
-“lite här och där”
-
-Gör:
-👉 Stratifierad sampling baserat på modell
-
-📍 Fältupplägg
-🔴 Hotspots
-intensiv inventering
-
-alla artgrupper
-
-dokumentation (GPS, foto, struktur)
-
-🟡 Mellan
-stickprov
-
-🔵 Låg
-snabb verifiering
-
-🔬 Metod (behåll från klassisk NVI)
-frisök
-
-substratfokus
-
-signalarter
-
-rödlistade arter
-
-👉 men nu riktat, inte slumpmässigt
-
-🧮 4. Steg 3 – Kvantifiering (din stora upgrade)
-Här slår du klassisk NVI:
-
-Skapa variabler per objekt:
-strukturindex (från EO)
-
-kontinuitetsindex
-
-artfynd (fält)
-
-död ved (fält eller proxy)
-
-👉 kombinera i en modell:
-
-Naturvärdesindex = f(struktur + kontinuitet + arter)
-
-🗺️ 5. Steg 4 – Objektavgränsning (GIS-first)
-Istället för:
-👉 rita i fält
-
-Gör:
-👉 segmentering i GIS + justering i fält
-
-Exempel:
-
-OBIA / segmentering
-
-kluster av höga värden
-
-📊 6. Steg 5 – Klassning (NVI-kompatibel)
-Du översätter till:
-
-klass 1–4
-
-MEN:
-👉 med spårbar logik
-
-🔁 7. Steg 6 – Reproducerbarhet
-Det här är din killer feature:
-
-script i GEE/QGIS/Python
-
-samma metod → nytt område
-
-upprepningsbart över tid
-
-👉 klassisk NVI klarar inte detta
-
-⚖️ Vad du gör bättre än rapporten
-Dimension	Klassisk rapport	Din metod
-Täthet	ojämn	optimerad
-Täckning	begränsad	nästan full
-Bias	hög	reducerad
-Reproducerbarhet	låg	hög
-Skalbarhet	låg	hög
-Analysdjup	medel	hög
-🔥 Det viktigaste (kort sagt)
-Du går från:
-
-👉 “inventera vad du råkar hitta”
-
-till:
-
-👉 “modellera → testa → verifiera”
-
-💡 Bonus – exakt hur du kan paketera detta (jobbmässigt)
-Det här är väldigt säljbart:
-
-👉 “Remote sensing–driven biodiversity screening + targeted NVI”
-
-Passar perfekt för:
-
-ARR-projekt
-
-Länsstyrelsen
-
-konsultbolag
-
-naturvård/kompensation
-
-🚀 Vill du ta nästa steg?
-Jag kan hjälpa dig konkret med:
-
-👉 en GEE-workflow (kod) för att skapa hotspots
-👉 ett fältprotokoll anpassat till din metod
-👉 hur du skriver detta i CV/intervju (väldigt starkt case)
-
-Säg till vad du vill göra 👍
-
+Metoder för NVI – anteckningar (i linje med repots publika pipeline)
+===================================================================
+
+Övergripande strategi
+---------------------
+Istället för att slumpmässigt "gå ut och leta naturvärden":
+  modellera var naturvärden sannolikt finns med nationell geodata → verifiera i fält.
+
+Den här texten speglar den showcase som finns i docs/index.html och Python-pipelinen
+i scripts/python/: primärt NMD 2023, Lantmäteriets lidar-DTM (TWI) och Skogsstyrelsens
+avverkningsdata.
+
+Steg 1 – Geodatabaserad screening (pre-NVI)
+--------------------------------------------
+Syfte: hitta potentiella värdekärnor innan fält, minska "random walking in forest".
+
+Datakällor i huvudspåret (öppen svensk geodata):
+  • NMD – basskikt, trädslag, objekthöjd (Naturvårdsverket)
+  • GSD-höjddata / lidar-DTM – topografi → TWI (Lantmäteriet)
+  • Avverkningsanmälningar – störningshistorik (Skogsstyrelsen)
+
+Vad som modelleras (konkret i pipelinen):
+  • Struktur – skogsmönster, heterogenitet, trädhöjd/ändellöv från NMD
+  • Kontinuitet – låg avverkningspåverkan över tid
+  • Fukt – topografisk blötmarksindikation (TWI) + ev. våtmark från NMD
+
+Valfria tillägg i koden (om du fyller mappar enligt README/CLAUDE.md)
+  • SLU Skogliga Grunddata (biomassa/höjd) före NMD i strukturindex
+  • GEE-exporterade raster i data/raw/gee_exports/ som komplement till struktur/kontinuitet
+  • Hansen treecover / Copernicus DEM som globala fallback om svenska filer saknas
+
+Dessa tillägg är inte med på den publika GitHub Pages-sidan, som beskriver
+huvudscenariot med enbart svenska öppna källor.
+
+Output: hotspot / mellan / låg prioritet → underlag för sampling-design.
+
+Steg 2 – Stratifierad fältinventering
+-------------------------------------
+Intensivt i högprioriterade celler, stickprov däremellan, snabb kontroll i låga zoner.
+Klassisk NVI-metodik (frisök, substrat, signalarter, rödlista) men styrd av modellen.
+
+Steg 3 – Kvantifiering
+----------------------
+Variabler per objekt: struktur- och kontinuitetsindex från geodata, artfynd och struktur
+från fält → sammansatt naturvärdesindex med spårbar logik.
+
+Steg 4–5 – Objekt, klassning
+----------------------------
+GIS-först vid avgränsning; NVI-klass 1–4 med dokumenterad kedja från data till klass.
+
+Steg 6 – Reproducerbarhet
+-------------------------
+Scriptad pipeline (Python, QGIS i arbetsflödet): samma kod → nytt område eller ny tidpunkt.
+
+Jämfört med ren klassisk NVI
+-----------------------------
+Täckning och prioritering förbättras; bias minskar när urvalet styrs av modell;
+reproducerbarhet och skalbarhet ökar när allt är versionshanterat kod.
+
+För CV / portfolio
+------------------
+Kort säljargument: geodatadriven prioritering och riktad NVI – nationell öppen data,
+transparent metod, redo att generaliseras till nya AOI.

@@ -1,0 +1,358 @@
+"""
+compute_indices.py
+Beräknar NVI-delindex från svenska datakällor:
+
+  Strukturindex   – SLU Skogliga Grunddata (biomassa/höjd) eller NMD-proxy
+  Kontinuitetsindex – Skogsstyrelsen avverkningsraster + NDVI-stabilitet
+  Fuktindex       – TWI från Lantmäteriet Höjddata (eller fallback DEM)
+
+Körordning:
+  1. python scripts/python/download_data.py
+  2. (Valfritt) GEE-export → data/raw/gee_exports/
+  3. python scripts/python/compute_indices.py
+"""
+
+import sys
+import numpy as np
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+from config import (
+    AOI_BBOX, AOI_NAME, EPSG_SWEREF,
+    NMD_DIR, NMD_BASSKIKT, NMD_OBJHOJD, NMD_TRADSLAG_DIR,
+    SKOGSST_DIR, LM_DIR, SLU_DIR, S2_EXPORT_DIR,
+    PROC_DIR, WEIGHTS,
+    NMD_FOREST_CLASSES, NMD_WETLAND_CLASSES,
+    HANSEN_DIR, WORLDCOVER_DIR, DEM_FALLBACK_DIR
+)
+
+try:
+    import rasterio
+    from rasterio.merge import merge
+    from rasterio.mask import mask as rio_mask
+    from rasterio.warp import reproject, Resampling, calculate_default_transform
+    from rasterio.transform import from_bounds
+    from shapely.geometry import box, mapping
+    from pyproj import Transformer
+    from scipy.ndimage import generic_filter, uniform_filter
+except ImportError as e:
+    sys.exit(f"[FEL] Saknar paket: {e}\n  Kor: pip install -r requirements.txt")
+
+
+# ── Koordinatgränser ──────────────────────────────────────────────────────────
+
+def aoi_geom_wgs84():
+    return [mapping(box(
+        AOI_BBOX["min_lon"], AOI_BBOX["min_lat"],
+        AOI_BBOX["max_lon"], AOI_BBOX["max_lat"]
+    ))]
+
+
+def aoi_sweref():
+    t = Transformer.from_crs(4326, EPSG_SWEREF, always_xy=True)
+    x_min, y_min = t.transform(AOI_BBOX["min_lon"], AOI_BBOX["min_lat"])
+    x_max, y_max = t.transform(AOI_BBOX["max_lon"], AOI_BBOX["max_lat"])
+    return x_min, y_min, x_max, y_max
+
+
+def geom_sweref():
+    x_min, y_min, x_max, y_max = aoi_sweref()
+    return [mapping(box(x_min, y_min, x_max, y_max))]
+
+
+# ── Raster-hjälpare ───────────────────────────────────────────────────────────
+
+def clip_and_read(tif_path: Path, crs_is_sweref: bool = True):
+    """Klipper GeoTIFF till AOI. Returnerar (array, metadata)."""
+    geom = geom_sweref() if crs_is_sweref else aoi_geom_wgs84()
+    with rasterio.open(tif_path) as src:
+        arr, tf = rio_mask(src, geom, crop=True)
+        meta = src.meta.copy()
+        meta.update({"height": arr.shape[1], "width": arr.shape[2], "transform": tf})
+    return arr[0].astype(float), meta
+
+
+def merge_and_clip(paths: list, crs_is_sweref: bool = True):
+    """Sätter ihop brickor och klipper till AOI."""
+    if len(paths) == 1:
+        return clip_and_read(paths[0], crs_is_sweref)
+    datasets = [rasterio.open(p) for p in paths]
+    merged, tf = merge(datasets)
+    for d in datasets:
+        d.close()
+    meta = datasets[0].meta.copy()
+    meta.update({"transform": tf, "width": merged.shape[2], "height": merged.shape[1]})
+    import tempfile, os
+    with tempfile.NamedTemporaryFile(suffix=".tif", delete=False) as tmp:
+        tp = Path(tmp.name)
+    with rasterio.open(tp, "w", **meta) as dst:
+        dst.write(merged)
+    result = clip_and_read(tp, crs_is_sweref)
+    os.unlink(tp)
+    return result
+
+
+def normalize(arr: np.ndarray, p_lo: float = 2, p_hi: float = 98) -> np.ndarray:
+    valid = arr[np.isfinite(arr) & (arr > -9000)]
+    lo = np.percentile(valid, p_lo)
+    hi = np.percentile(valid, p_hi)
+    return np.clip((arr - lo) / (hi - lo + 1e-9), 0, 1)
+
+
+def save_raster(arr: np.ndarray, meta: dict, suffix: str) -> Path:
+    out = PROC_DIR / f"{AOI_NAME}_{suffix}.tif"
+    m = meta.copy()
+    m.update({"dtype": "float32", "count": 1, "nodata": -9999.0,
+              "crs": f"EPSG:{EPSG_SWEREF}"})
+    with rasterio.open(out, "w", **m) as dst:
+        dst.write(np.where(np.isfinite(arr), arr.astype("float32"), -9999.0), 1)
+    print(f"  >> {out.name}")
+    return out
+
+
+def resample_to(arr: np.ndarray, target_shape: tuple) -> np.ndarray:
+    """Omsampling av array till önskad form via scipy zoom."""
+    if arr.shape == target_shape:
+        return arr
+    from scipy.ndimage import zoom
+    factors = (target_shape[0] / arr.shape[0], target_shape[1] / arr.shape[1])
+    return zoom(arr, factors, order=1)
+
+
+# ── TWI-beräkning ─────────────────────────────────────────────────────────────
+
+def compute_twi(dem: np.ndarray, cell_m: float = 2.0) -> np.ndarray:
+    """Topographic Wetness Index (TWI = ln(a / tan(beta)))."""
+    dem_clean = np.where(np.isfinite(dem) & (dem > -1000), dem, np.nanmedian(dem))
+    dy, dx = np.gradient(dem_clean, cell_m)
+    slope = np.arctan(np.sqrt(dx**2 + dy**2))
+    tan_slope = np.clip(np.tan(slope), 0.001, None)
+
+    def upslope_count(p):
+        return float(np.sum(p > p[4]))
+
+    flow_acc = generic_filter(dem_clean, upslope_count, size=3) + 1.0
+    twi = np.log(flow_acc / tan_slope)
+    return np.where(np.isfinite(dem), twi, np.nan)
+
+
+# ── 1. Strukturindex ──────────────────────────────────────────────────────────
+#
+# Prioritetsordning:
+#   A. SLU Skogliga Grunddata (biomassa + trädhöjd) — bäst
+#   B. GEE-exporterad NDVI-baserad struktur          — bra
+#   C. NMD skogsklass som binär proxy               — fallback
+
+def build_structure_index():
+    # A. SLU Skogliga Grunddata
+    slu_biomass = sorted(SLU_DIR.glob("*biomassa*.tif"))
+    slu_height  = sorted(SLU_DIR.glob("*hojd*.tif"))
+
+    if slu_biomass:
+        print("  Kalla: SLU Skogliga Grunddata (biomassa)")
+        bio, meta = merge_and_clip(slu_biomass)
+        bio[bio < 0] = np.nan
+        structure = normalize(bio)
+        if slu_height:
+            hgt, _ = merge_and_clip(slu_height)
+            hgt[hgt < 0] = np.nan
+            hgt_norm = normalize(hgt)
+            hgt_norm = resample_to(hgt_norm, structure.shape)
+            structure = structure * 0.6 + hgt_norm * 0.4
+        return structure, meta
+
+    # B. GEE-exporterad NDVI-struktur
+    gee_files = list(S2_EXPORT_DIR.glob("*Delindex*.tif"))
+    if gee_files:
+        print("  Kalla: GEE-exporterad NDVI (struktur band 1)")
+        arr, meta = clip_and_read(gee_files[0], crs_is_sweref=False)
+        return normalize(arr), meta
+
+    # C. NMD – basskikt + trädslag + objekthöjd
+    if NMD_BASSKIKT.exists():
+        has_tradslag = NMD_TRADSLAG_DIR.exists()
+        has_objhojd  = NMD_OBJHOJD.exists()
+        print("  Kalla: NMD Basskikt" +
+              (" + Tradslag" if has_tradslag else "") +
+              (" + Objekthojd" if has_objhojd else ""))
+
+        nmd, meta = clip_and_read(NMD_BASSKIKT, crs_is_sweref=True)
+        forest_mask = np.isin(nmd.astype(int), NMD_FOREST_CLASSES).astype(float)
+        texture     = generic_filter(forest_mask, np.std, size=7)
+        structure   = forest_mask * 0.5 + normalize(texture) * 0.2
+
+        # Trädslag: ädellöv och trivial löv ger biodiversitetsbonus
+        # Filer: adel, bok, ekovradel = högt värde  |  trivial = måttligt
+        if has_tradslag:
+            # Ädellövträd (ekvärdig för NVI) – täckningsskikt 0/1
+            adel_files = list(NMD_TRADSLAG_DIR.glob("*adel*.tif")) + \
+                         list(NMD_TRADSLAG_DIR.glob("*bok*.tif"))  + \
+                         list(NMD_TRADSLAG_DIR.glob("*ekovradel*.tif"))
+            trivial_files = list(NMD_TRADSLAG_DIR.glob("*trivial*.tif"))
+
+            if adel_files:
+                adel, _ = clip_and_read(adel_files[0], crs_is_sweref=True)
+                adel = resample_to(adel.clip(0, 1), structure.shape)
+                structure += adel * 0.20   # starkt bonus för ädellöv
+
+            if trivial_files:
+                trivial, _ = clip_and_read(trivial_files[0], crs_is_sweref=True)
+                trivial = resample_to(trivial.clip(0, 1), structure.shape)
+                structure += trivial * 0.08  # lövbonus (björk, asp etc.)
+
+        # Objekthöjd 5–45 m: proxy för trädhöjd (gammal skog)
+        if has_objhojd:
+            oh, _ = clip_and_read(NMD_OBJHOJD, crs_is_sweref=True)
+            oh = resample_to(oh.clip(0, None), structure.shape)
+            structure += normalize(oh) * 0.10
+
+        return np.clip(structure, 0, 1), meta
+
+    # D. Fallback: Hansen treecover2000 (global, alltid tillgänglig)
+    tc_files = sorted(HANSEN_DIR.glob("*treecover2000*.tif"))
+    if tc_files:
+        print("  Kalla: Hansen GFC treecover2000 (global fallback)")
+        tc, meta = merge_and_clip(tc_files, crs_is_sweref=False)
+        tc[tc < 0] = 0
+        texture = generic_filter(tc, np.std, size=5)
+        structure = normalize(tc, 0, 100) * 0.7 + normalize(texture) * 0.3
+        return structure, meta
+
+    raise FileNotFoundError(
+        "Ingen strukturdata hittad. Kor download_data.py eller --nmd-confirm."
+    )
+
+
+# ── 2. Kontinuitetsindex ──────────────────────────────────────────────────────
+#
+# Prioritetsordning:
+#   A. Skogsstyrelsen avverkningsraster (svensk primärkälla) — bäst
+#   B. NMD temporär stabilitet (om GEE-export med NDVI std) — komplement
+
+def build_continuity_index(target_shape: tuple):
+    # A. Skogsstyrelsen avverkningsraster
+    avverk_files = sorted(SKOGSST_DIR.glob("*raster*.tif"))
+    if avverk_files:
+        print("  Kalla: Skogsstyrelsen avverkningsanmalningar")
+        arr, _ = merge_and_clip(avverk_files)
+        # 1 = avverkad (störd), 0 = ostört
+        continuity = 1.0 - arr.clip(0, 1)
+        continuity = resample_to(continuity, target_shape)
+
+        # Mjuka kanter kring avverkade parceller
+        disturbed_buffered = uniform_filter(arr.clip(0, 1), size=3)
+        disturbed_buffered = resample_to(disturbed_buffered, target_shape)
+        continuity[disturbed_buffered > 0.1] *= 0.6
+
+        return continuity
+
+    # B. Fallback: om GEE-export med NDVI std finns
+    gee_files = list(S2_EXPORT_DIR.glob("*Delindex*.tif"))
+    if gee_files:
+        print("  Kalla: GEE NDVI-stabilitet (band 5 = NDVI std)")
+        with rasterio.open(gee_files[0]) as src:
+            if src.count >= 5:
+                ndvi_std_band = src.read(5).astype(float)
+                ndvi_med_band = src.read(4).astype(float)
+                cv = ndvi_std_band / (np.abs(ndvi_med_band) + 0.001)
+                cont = (cv * -1 + cv.max()) / (cv.max() + 0.001)
+                return resample_to(normalize(cont), target_shape)
+
+    print("  [VARNING] Ingen kontinuitetsdata – anvander neutralt 0.5")
+    return np.full(target_shape, 0.5)
+
+
+# ── 3. Fuktindex ─────────────────────────────────────────────────────────────
+#
+# Prioritetsordning:
+#   A. Lantmäteriet Höjddata 2m (lidar) — bäst
+#   B. NMD-våtmark + topografi           — komplement
+
+def build_moisture_index(target_shape: tuple):
+    # A. Lantmäteriet Höjddata
+    lm_files = sorted(LM_DIR.glob("*.tif"))
+    if lm_files:
+        print("  Kalla: Lantmateriet GSD-Hojddata")
+        dem, _ = merge_and_clip(lm_files)
+        dem[dem < -1000] = np.nan
+        cell_m = 2.0  # 2m-modell
+        twi = compute_twi(dem, cell_m=cell_m)
+        moisture = normalize(twi)
+        moisture = resample_to(moisture, target_shape)
+
+        # Komplettera med NMD våtmark om tillgänglig
+        if NMD_BASSKIKT.exists():
+            nmd, _ = clip_and_read(NMD_BASSKIKT, crs_is_sweref=True)
+            wetland = np.isin(nmd.astype(int), NMD_WETLAND_CLASSES).astype(float)
+            wetland = resample_to(wetland, target_shape)
+            moisture = moisture * 0.7 + wetland * 0.3
+
+        return moisture
+
+    # B. Fallback: NMD-våtmark + generisk topografi
+    if NMD_BASSKIKT.exists():
+        print("  Kalla: NMD vatmark (fuktproxy)")
+        nmd, _ = clip_and_read(NMD_BASSKIKT, crs_is_sweref=True)
+        wetland = np.isin(nmd.astype(int), NMD_WETLAND_CLASSES).astype(float)
+        return resample_to(normalize(wetland + 0.1), target_shape)
+
+    # C. Fallback: Copernicus DEM (global, alltid tillgänglig)
+    dem_files = sorted(DEM_FALLBACK_DIR.glob("*.tif"))
+    if dem_files:
+        print("  Kalla: Copernicus DEM (global fallback)")
+        dem, _ = merge_and_clip(dem_files, crs_is_sweref=False)
+        dem[dem < -1000] = np.nan
+        twi = compute_twi(dem, cell_m=30.0)
+        return resample_to(normalize(twi), target_shape)
+
+    print("  [VARNING] Ingen hojddata – fuktindex satt till 0.5")
+    return np.full(target_shape, 0.5)
+
+
+# ── Huvudfunktion ─────────────────────────────────────────────────────────────
+
+def compute_indices():
+    print("\n" + "=" * 60)
+    print("Beraknar NVI-delindex (svenska datakallor)")
+    print("=" * 60)
+
+    print("\n[1/3] Strukturindex ...")
+    structure, base_meta = build_structure_index()
+
+    print("\n[2/3] Kontinuitetsindex ...")
+    continuity = build_continuity_index(structure.shape)
+
+    print("\n[3/3] Fuktindex ...")
+    moisture = build_moisture_index(structure.shape)
+
+    print("\nSammansatt NVI-poang ...")
+    # Fyll kantpixlar (NaN från täckningsgap) med medianvärde
+    for arr in [structure, continuity, moisture]:
+        nan_mask = ~np.isfinite(arr)
+        if nan_mask.any():
+            arr[nan_mask] = np.nanmedian(arr)
+
+    nvi_score = (
+        structure  * WEIGHTS["structure"] +
+        continuity * WEIGHTS["continuity"] +
+        moisture   * WEIGHTS["moisture"]
+    )
+
+    for arr, suffix in [
+        (structure,  "structure_index"),
+        (continuity, "continuity_index"),
+        (moisture,   "moisture_index"),
+        (nvi_score,  "nvi_score"),
+    ]:
+        save_raster(arr, base_meta, suffix)
+
+    print(
+        f"\n  NVI-poang: min={nvi_score.min():.3f}  "
+        f"medel={nvi_score.mean():.3f}  max={nvi_score.max():.3f}"
+    )
+    print("\n[klar] se data/processed/")
+    return nvi_score, base_meta
+
+
+if __name__ == "__main__":
+    compute_indices()

@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EO-driven Naturvärdesinventering – Johan Karlsson</title>
+  <style>
+    :root {
+      --green-dark:  #1b4332;
+      --green-mid:   #2d6a4f;
+      --green-light: #52b788;
+      --green-pale:  #d8f3dc;
+      --accent:      #40916c;
+      --red:         #d62828;
+      --yellow:      #f4a261;
+      --blue:        #1d3557;
+      --text:        #212529;
+      --text-muted:  #6c757d;
+      --bg:          #f8faf8;
+      --bg-card:     #ffffff;
+      --border:      #dee2e0;
+      --radius:      10px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.65;
+    }
+
+    /* ── Header ── */
+    header {
+      background: var(--green-dark);
+      color: white;
+      padding: 0 2rem;
+      position: sticky; top: 0; z-index: 100;
+      box-shadow: 0 2px 8px rgba(0,0,0,.25);
+    }
+    header nav {
+      max-width: 1100px; margin: 0 auto;
+      display: flex; align-items: center; justify-content: space-between;
+      height: 56px;
+    }
+    header .brand { font-weight: 700; font-size: 1rem; letter-spacing: .3px; }
+    header .brand span { color: var(--green-light); }
+    header nav ul { list-style: none; display: flex; gap: 1.8rem; }
+    header nav a {
+      color: rgba(255,255,255,.82); text-decoration: none;
+      font-size: .88rem; transition: color .15s;
+    }
+    header nav a:hover { color: white; }
+
+    /* ── Hero ── */
+    .hero {
+      background: linear-gradient(135deg, var(--green-dark) 0%, var(--green-mid) 60%, var(--accent) 100%);
+      color: white;
+      padding: 5rem 2rem 4rem;
+      text-align: center;
+    }
+    .hero .tag {
+      display: inline-block;
+      background: rgba(255,255,255,.15);
+      border: 1px solid rgba(255,255,255,.3);
+      border-radius: 20px;
+      padding: .25rem .9rem;
+      font-size: .8rem;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+      margin-bottom: 1.2rem;
+    }
+    .hero h1 {
+      font-size: clamp(1.8rem, 4vw, 3rem);
+      font-weight: 800;
+      line-height: 1.2;
+      max-width: 760px; margin: 0 auto .9rem;
+    }
+    .hero h1 em { color: var(--green-light); font-style: normal; }
+    .hero p {
+      font-size: 1.1rem;
+      max-width: 640px; margin: 0 auto 2rem;
+      opacity: .88;
+    }
+    .hero-badges { display: flex; gap: .7rem; justify-content: center; flex-wrap: wrap; }
+    .badge {
+      background: rgba(255,255,255,.15);
+      border: 1px solid rgba(255,255,255,.25);
+      border-radius: 6px;
+      padding: .3rem .75rem;
+      font-size: .8rem;
+    }
+
+    /* ── Sections ── */
+    section { padding: 4rem 2rem; }
+    section:nth-child(even) { background: white; }
+    .container { max-width: 1100px; margin: 0 auto; }
+
+    h2 {
+      font-size: 1.7rem; font-weight: 700;
+      color: var(--green-dark);
+      margin-bottom: .5rem;
+    }
+    .section-lead {
+      color: var(--text-muted);
+      font-size: 1.05rem;
+      max-width: 680px;
+      margin-bottom: 2.5rem;
+    }
+
+    /* ── Intro two-col ── */
+    .intro-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 2rem;
+    }
+    @media (max-width: 700px) { .intro-grid { grid-template-columns: 1fr; } }
+
+    .intro-box {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.5rem;
+    }
+    .intro-box h3 { font-size: 1.05rem; color: var(--green-dark); margin-bottom: .6rem; }
+    .intro-box.highlight {
+      background: var(--green-pale);
+      border-color: var(--green-light);
+    }
+
+    /* ── Steps ── */
+    .steps-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1.2rem;
+    }
+    .step-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.4rem 1.4rem 1.2rem;
+      position: relative;
+      transition: box-shadow .2s, transform .2s;
+    }
+    .step-card:hover {
+      box-shadow: 0 6px 20px rgba(0,0,0,.09);
+      transform: translateY(-2px);
+    }
+    .step-num {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 32px; height: 32px;
+      background: var(--green-dark);
+      color: white;
+      border-radius: 50%;
+      font-weight: 700; font-size: .85rem;
+      margin-bottom: .8rem;
+    }
+    .step-card h3 { font-size: 1rem; color: var(--green-dark); margin-bottom: .4rem; }
+    .step-card p { font-size: .88rem; color: var(--text-muted); }
+    .step-card .tag-pill {
+      display: inline-block;
+      margin-top: .7rem;
+      background: var(--green-pale);
+      color: var(--green-mid);
+      border-radius: 20px;
+      padding: .15rem .65rem;
+      font-size: .75rem;
+      font-weight: 600;
+    }
+
+    /* ── Diagram ── */
+    .diagram-wrap {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      margin-bottom: 2.5rem;
+    }
+    .diagram-wrap img { width: 100%; display: block; }
+
+    /* ── Map section ── */
+    .map-wrap {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      margin-bottom: 1.5rem;
+    }
+    .map-wrap img { width: 100%; display: block; }
+    .map-caption {
+      font-size: .85rem;
+      color: var(--text-muted);
+      text-align: center;
+      margin-top: .5rem;
+    }
+
+    .map-legend {
+      display: flex; gap: 1.5rem; flex-wrap: wrap;
+      justify-content: center;
+      margin: 1.2rem 0 2rem;
+    }
+    .legend-item { display: flex; align-items: center; gap: .5rem; font-size: .9rem; }
+    .legend-dot {
+      width: 16px; height: 16px;
+      border-radius: 3px; flex-shrink: 0;
+    }
+
+    /* ── Data sources table ── */
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: .9rem;
+    }
+    .data-table th {
+      background: var(--green-dark); color: white;
+      padding: .7rem 1rem; text-align: left;
+      font-weight: 600; font-size: .85rem;
+    }
+    .data-table td {
+      padding: .65rem 1rem;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    .data-table tr:last-child td { border-bottom: none; }
+    .data-table tr:nth-child(even) td { background: var(--bg); }
+    .data-table .source-name { font-weight: 600; color: var(--green-dark); }
+    .chip {
+      display: inline-block;
+      background: var(--green-pale);
+      color: var(--green-mid);
+      border-radius: 12px;
+      padding: .1rem .55rem;
+      font-size: .78rem;
+      font-weight: 600;
+    }
+    .chip.red { background: #fde8e8; color: #c0392b; }
+
+    /* ── Comparison ── */
+    .compare-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: .9rem;
+    }
+    .compare-table th {
+      padding: .7rem 1rem;
+      border-bottom: 2px solid var(--border);
+      text-align: left;
+      font-size: .85rem;
+    }
+    .compare-table th:nth-child(2) { color: var(--text-muted); }
+    .compare-table th:nth-child(3) { color: var(--green-dark); }
+    .compare-table td {
+      padding: .6rem 1rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .compare-table tr:last-child td { border-bottom: none; }
+    .compare-table .dim { color: var(--text-muted); font-size: .85rem; }
+    .compare-table .good { color: #2d6a4f; font-weight: 600; }
+    .compare-table .bad  { color: #888; }
+
+    /* ── Code block ── */
+    .code-block {
+      background: #1e2a22;
+      color: #a8d5b5;
+      border-radius: var(--radius);
+      padding: 1.2rem 1.5rem;
+      font-family: "Cascadia Code", "Fira Code", monospace;
+      font-size: .83rem;
+      overflow-x: auto;
+      line-height: 1.7;
+    }
+    .code-block .comment { color: #6a9970; }
+    .code-block .cmd     { color: #7ec8e3; }
+
+    /* ── Footer ── */
+    footer {
+      background: var(--green-dark);
+      color: rgba(255,255,255,.7);
+      text-align: center;
+      padding: 2rem;
+      font-size: .88rem;
+    }
+    footer a { color: var(--green-light); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+
+    /* ── Utilities ── */
+    .mt-1 { margin-top: .5rem; }
+    .mt-2 { margin-top: 1rem; }
+    .text-center { text-align: center; }
+  </style>
+</head>
+<body>
+
+<!-- ── Header ── -->
+<header>
+  <nav>
+    <span class="brand">Johan Karlsson &nbsp;·&nbsp; <span>EO-driven NVI</span></span>
+    <ul>
+      <li><a href="#metod">Metod</a></li>
+      <li><a href="#karta">Karta</a></li>
+      <li><a href="#data">Datakällor</a></li>
+      <li><a href="#jamforelse">Jämförelse</a></li>
+      <li><a href="https://github.com/galago-gis/nvi" target="_blank">GitHub</a></li>
+    </ul>
+  </nav>
+</header>
+
+<!-- ── Hero ── -->
+<div class="hero">
+  <div class="tag">GIS &nbsp;·&nbsp; Remote Sensing &nbsp;·&nbsp; Naturvård</div>
+  <h1>Remote sensing-driven biodiversity screening + <em>targeted NVI</em></h1>
+  <p>En reproducerbar hybridmetod som kombinerar satellitdata och nationella geodata för att prioritera och effektivisera naturvärdesinventering i fält.</p>
+  <div class="hero-badges">
+    <span class="badge">Sentinel-2 / Sentinel-1</span>
+    <span class="badge">NMD 2023</span>
+    <span class="badge">Lantmäteriet Lidar</span>
+    <span class="badge">Skogsstyrelsen</span>
+    <span class="badge">Python · GEE · QGIS</span>
+  </div>
+</div>
+
+<!-- ── Introduktion ── -->
+<section id="intro">
+  <div class="container">
+    <h2>Varför EO-driven NVI?</h2>
+    <p class="section-lead">Klassisk naturvärdesinventering är resurskrävande och beror av var inventeraren råkar leta. Med fjärranalys kan vi modellera var naturvärden sannolikt finns — och rikta fältarbetet dit det gör störst nytta.</p>
+
+    <div class="intro-grid">
+      <div class="intro-box">
+        <h3>Klassisk NVI</h3>
+        <p>Inventeraren söker fritt i fält baserat på erfarenhet och tillgänglig tid. Resultatet beror starkt av var man väljer att gå, och det är svårt att upprepa eller skala upp metoden till nya områden.</p>
+        <p class="mt-1" style="font-style:italic; color:var(--text-muted);">"Gå ut och leta naturvärden"</p>
+      </div>
+      <div class="intro-box highlight">
+        <h3>EO-driven NVI (denna metod)</h3>
+        <p>Satellitdata, nationella geodata och lidar-DEM används för att identifiera potentiella värdekärnor <em>innan</em> fältbesöket. Fältarbetet stratifieras och riktas — mer tid på rätt ställen, färre resurser på lågprioriterade ytor.</p>
+        <p class="mt-1" style="font-style:italic; color:var(--green-mid);">"Modellera → verifiera → klassificera"</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Metod ── -->
+<section id="metod">
+  <div class="container">
+    <h2>Metodöversikt</h2>
+    <p class="section-lead">Arbetsflödet består av sex steg — från automatiserad EO-screening till fältverifiering och reproducerbar klassning.</p>
+
+    <div class="diagram-wrap">
+      <img src="assets/method_diagram.png" alt="Metoddiagram – 6 steg i EO-driven NVI-workflow">
+    </div>
+
+    <div class="steps-grid">
+
+      <div class="step-card">
+        <div class="step-num">1</div>
+        <h3>EO-screening (pre-NVI)</h3>
+        <p>Satellitdata och nationella geodata analyseras för att identifiera potentiella värdekärnor — utan ett enda fältsteg. Fokus på struktur, kontinuitet och hydrologi.</p>
+        <span class="tag-pill">Sentinel-2 · Sentinel-1 · NMD · Lidar</span>
+      </div>
+
+      <div class="step-card">
+        <div class="step-num">2</div>
+        <h3>Hotspot-modellering</h3>
+        <p>Tre delindex kombineras med viktad summering till ett sammansatt NVI-poäng per pixel: strukturindex (40 %), kontinuitetsindex (40 %) och fuktindex (20 %).</p>
+        <span class="tag-pill">Viktad modell · Python</span>
+      </div>
+
+      <div class="step-card">
+        <div class="step-num">3</div>
+        <h3>Stratifierad sampling-design</h3>
+        <p>AOI delas in i tre prioritetsklasser baserat på modellen. Klass 3 (hotspot) inventeras intensivt — alla artgrupper, dokumentation. Klass 1 enbart snabb verifiering.</p>
+        <span class="tag-pill">Stratifierat urval · GIS-polygoner</span>
+      </div>
+
+      <div class="step-card">
+        <div class="step-num">4</div>
+        <h3>Riktad fältinventering</h3>
+        <p>Klassisk NVI-metodik (frisök, substratfokus, signalarter, rödlistade arter) — men nu riktad och informerad av modellen istället för slumpmässig.</p>
+        <span class="tag-pill">Fältprotokoll · GPS-dokumentation</span>
+      </div>
+
+      <div class="step-card">
+        <div class="step-num">5</div>
+        <h3>Kvantifiering</h3>
+        <p>Fältdata kombineras med EO-index till ett per-objekt naturvärdesindex. Transparenta poäng ersätter subjektiv bedömning och möjliggör granskning och jämförbarhet.</p>
+        <span class="tag-pill">Naturvärdesindex = f(struktur + kontinuitet + art)</span>
+      </div>
+
+      <div class="step-card">
+        <div class="step-num">6</div>
+        <h3>Reproducerbarhet</h3>
+        <p>Hela pipelinen — från nedladdning av rådata till slutlig hotspot-karta — är scriptad. Samma kod körs om ett år eller i ett nytt område utan manuella steg.</p>
+        <span class="tag-pill">GEE · Python · QGIS · Open data</span>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ── Karta ── -->
+<section id="karta">
+  <div class="container">
+    <h2>Exempelkarta – Fiby urskog, Uppland</h2>
+    <p class="section-lead">Testområde: Fiby urskog (~10 km²) — ett av Sveriges bäst bevarade gammelskogslandskap. Kartan nedan visar utfallet av EO-screeningen och hur fältinsatserna bör prioriteras.</p>
+
+    <div class="map-wrap">
+      <img src="assets/hotspot_showcase.png"
+           alt="EO-driven NVI hotspot-karta och delindex – Fiby urskog">
+    </div>
+
+    <div class="map-legend">
+      <div class="legend-item">
+        <div class="legend-dot" style="background:#d73027;"></div>
+        <span><strong>Klass 3 – Hotspot</strong> &nbsp;Intensiv inventering, alla artgrupper</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-dot" style="background:#fee090;"></div>
+        <span><strong>Klass 2 – Mellanklass</strong> &nbsp;Stickprov, fokus signalarter</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-dot" style="background:#4575b4;"></div>
+        <span><strong>Klass 1 – Låg prioritet</strong> &nbsp;Snabb verifiering</span>
+      </div>
+    </div>
+
+    <p class="map-caption">
+      Strukturindex baserat på NMD 2023 (Naturvårdsverket) med trädslag och objekthöjd.
+      Fuktindex från Lantmäteriets GSD-Höjddata 1m (lidar-TWI). Kontinuitetsindex från
+      Skogsstyrelsens avverkningsanmälningar. Klassning percentilbaserad (p33/p67).
+    </p>
+  </div>
+</section>
+
+<!-- ── Datakällor ── -->
+<section id="data">
+  <div class="container">
+    <h2>Datakällor</h2>
+    <p class="section-lead">Alla datakällor är svenska öppna geodata utan licensavgift.</p>
+
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Datakälla</th>
+          <th>Leverantör</th>
+          <th>Upplösning</th>
+          <th>Används för</th>
+          <th>Licens</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="source-name">NMD 2023 – Basskikt + Trädslag + Objekthöjd</span></td>
+          <td>Naturvårdsverket</td>
+          <td>10 m</td>
+          <td>Strukturindex – skogsklasser, trädslag (ädellöv), trädhöjd</td>
+          <td><span class="chip">Öppen data</span></td>
+        </tr>
+        <tr>
+          <td><span class="source-name">GSD-Höjddata, grid 1 m (lidar-DTM)</span></td>
+          <td>Lantmäteriet</td>
+          <td>1 m</td>
+          <td>Fuktindex – TWI (Topographic Wetness Index)</td>
+          <td><span class="chip">Öppen data</span></td>
+        </tr>
+        <tr>
+          <td><span class="source-name">Avverkningsanmälningar</span></td>
+          <td>Skogsstyrelsen</td>
+          <td>Polygon</td>
+          <td>Kontinuitetsindex – störningshistorik sedan 2000-talet</td>
+          <td><span class="chip">Öppen data</span></td>
+        </tr>
+        <tr>
+          <td><span class="source-name">Sentinel-2 SR (NDVI, textur, säsong)</span></td>
+          <td>ESA / Copernicus</td>
+          <td>10 m</td>
+          <td>Strukturindex – vegetationsindex och heterogenitet</td>
+          <td><span class="chip">Öppen data</span></td>
+        </tr>
+        <tr>
+          <td><span class="source-name">Sentinel-1 GRD (SAR backscatter)</span></td>
+          <td>ESA / Copernicus</td>
+          <td>10 m</td>
+          <td>Strukturindex – biomassaproxy, fuktdetektion</td>
+          <td><span class="chip">Öppen data</span></td>
+        </tr>
+        <tr>
+          <td><span class="source-name">Global Forest Change 2023</span></td>
+          <td>Hansen / UMD</td>
+          <td>30 m</td>
+          <td>Kontinuitetsproxy (fallback om Skogsstyrelsen saknas)</td>
+          <td><span class="chip">Öppen data</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ── Jämförelse ── -->
+<section id="jamforelse">
+  <div class="container">
+    <h2>Jämförelse med klassisk NVI</h2>
+    <p class="section-lead">Fördelarna är tydligast när inventeringsytan är stor, tidsbudgeten är begränsad, eller när resultaten behöver vara upprepningsbara.</p>
+
+    <table class="compare-table">
+      <thead>
+        <tr>
+          <th>Dimension</th>
+          <th>Klassisk NVI</th>
+          <th>EO-driven NVI (denna metod)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="dim">Inventeringstäthet</td>
+          <td class="bad">Ojämn – beroende av tid och rutt</td>
+          <td class="good">Optimerad – fokus på höga värden</td>
+        </tr>
+        <tr>
+          <td class="dim">Spatial täckning</td>
+          <td class="bad">Begränsad</td>
+          <td class="good">Nästan fullständig via EO-screening</td>
+        </tr>
+        <tr>
+          <td class="dim">Urvalsförskjutning (bias)</td>
+          <td class="bad">Hög – inventerar det som syns</td>
+          <td class="good">Reducerad – modellstyrd prioritering</td>
+        </tr>
+        <tr>
+          <td class="dim">Reproducerbarhet</td>
+          <td class="bad">Låg – personberoende</td>
+          <td class="good">Hög – scriptad, versionshanterad</td>
+        </tr>
+        <tr>
+          <td class="dim">Skalbarhet (nytt område)</td>
+          <td class="bad">Kräver nytt fältarbete</td>
+          <td class="good">Byt AOI, kör om scriptet</td>
+        </tr>
+        <tr>
+          <td class="dim">Tidsutnyttjande i fält</td>
+          <td class="bad">Spretat</td>
+          <td class="good">Koncentrerat på värdekärnor</td>
+        </tr>
+        <tr>
+          <td class="dim">Historisk markanvändning</td>
+          <td class="bad">Ofta ignoreras</td>
+          <td class="good">Integrerad via GFC / Skogsstyrelsen</td>
+        </tr>
+        <tr>
+          <td class="dim">NVI-klasskompatibilitet</td>
+          <td class="good">Ja (klass 1–4)</td>
+          <td class="good">Ja – poäng översätts till klass 1–4</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ── Reproducerbarhet ── -->
+<section id="kod">
+  <div class="container">
+    <h2>Reproducerbarhet</h2>
+    <p class="section-lead">Hela analysen — från rådata till hotspot-karta — kör med tre kommandon. Byt AOI i <code>config.py</code> för att analysera ett nytt område.</p>
+
+    <div class="code-block">
+<span class="comment"># Ladda ner svenska referensdata (NMD, Skogsstyrelsen, Lantmäteriet)</span>
+<span class="cmd">python</span> scripts/python/download_data.py --nmd-confirm
+
+<span class="comment"># Beräkna struktur-, kontinuitet- och fuktindex</span>
+<span class="cmd">python</span> scripts/python/compute_indices.py
+
+<span class="comment"># Klassificera och generera hotspot-karta</span>
+<span class="cmd">python</span> scripts/python/hotspot_model.py
+    </div>
+
+    <p class="mt-2" style="color:var(--text-muted); font-size:.9rem;">
+      Komplett källkod och dokumentation:
+      <a href="https://github.com/galago-gis/nvi" style="color:var(--accent);">github.com/galago-gis/nvi</a>
+    </p>
+  </div>
+</section>
+
+<!-- ── Footer ── -->
+<footer>
+  <p>
+    Johan Karlsson &nbsp;·&nbsp; GIS- och fjärranalysspecialist &nbsp;·&nbsp;
+    <a href="mailto:johankarlsson.gis@gmail.com">johankarlsson.gis@gmail.com</a>
+    &nbsp;·&nbsp;
+    <a href="https://www.linkedin.com/in/johankarlssongis" target="_blank">LinkedIn</a>
+    &nbsp;·&nbsp;
+    <a href="https://github.com/galago-gis/nvi" target="_blank">GitHub</a>
+  </p>
+  <p style="margin-top:.5rem; font-size:.8rem; opacity:.6;">
+    Datakällor: Naturvårdsverket, Lantmäteriet, Skogsstyrelsen, ESA Copernicus &nbsp;·&nbsp; Öppen data
+  </p>
+</footer>
+
+</body>
+</html>

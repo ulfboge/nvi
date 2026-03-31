@@ -4,22 +4,24 @@ Internt dokument (samma som `PIPELINE_METOD.md`: **inte** menat som GitHub Pages
 
 ---
 
-## 0. Hämta öppna observationer (GBIF) för AOI
+## 0. Hämta öppna observationer (GBIF och/eller SLU SOS) för AOI
 
 **Skript:** `scripts/python/fetch_public_observations.py`
 
-Hämtar poster från **[GBIF Occurrence API](https://www.gbif.org/developer/summary)** inom **samma polygon som `AOI_BBOX`** i `config.py`. **Ingen API-nyckel.** Många svenska fynd (inkl. material från **Artportalen**) finns i GBIF som dataset *Artportalen* — men **inte** skyddsklassade eller diffuserade poster i den omfattning som Artportalen döljer; det följer datavärdarnas publiceringsregler.
+**GBIF:** Hämtar poster från **[GBIF Occurrence API](https://www.gbif.org/developer/summary)** inom **samma polygon som `AOI_BBOX`** i `config.py`. **Ingen API-nyckel.** Många svenska fynd (inkl. material från **Artportalen**) finns i GBIF som dataset *Artportalen* — men **inte** skyddsklassade eller diffuserade poster i den omfattning som Artportalen döljer; det följer datavärdarnas publiceringsregler.
+
+**SLU SOS (Artdatabanken):** Kräver [gratis prenumeration](https://api-portal.artdatabanken.se/) på *Species Observations – multiple data resources*. Sätt i repots **`.env`**: `SOS_API_BASE` (bas-URL från portalen) och `SOS_SUBSCRIPTION_KEY` (primär eller sekundär nyckel). Anropa med `--source sos` eller `--source both`. API-anropet använder `output.fieldSet: Extended` så taxonomikolumner (t.ex. kingdom–genus) fylls; art-epitet kan härledas från `scientificName` när det saknas. Enkel paging (`skip`/`take`) används; **ca 10 000 poster per körning** är en praktisk övre gräns om du inte utökar skriptet.
 
 ```bash
 python scripts/python/fetch_public_observations.py
 python scripts/python/fetch_public_observations.py --year-from 2010 --year-to 2024 --max-records 15000
+python scripts/python/fetch_public_observations.py --source sos --max-records 5000
+python scripts/python/fetch_public_observations.py --source both --out-sos data/raw/arter/observations/sos_fiby_urskog.gpkg
 ```
 
-**Utdata:** `data/raw/arter/observations/gbif_<AOI_NAME>.gpkg` + `gbif_<AOI>_metadata.txt` (citeringsinfo). Mappen `data/raw/` är gitignorerad.
+**Utdata:** `data/raw/arter/observations/gbif_<AOI_NAME>.gpkg` + `gbif_<AOI>_metadata.txt` (citeringsinfo); vid SOS även `sos_<AOI_NAME>.gpkg` (eller sökväg från `--out-sos`). Mappen `data/raw/` är gitignorerad.
 
-**Därefter:** `species_overlay_a.py --obs …/gbif_fiby_urskog.gpkg --rodlista …`
-
-**SLU SOS / Artportalen-API direkt:** kräver [gratis prenumeration](https://api-portal.artdatabanken.se/) och header `Ocp-Apim-Subscription-Key`. Bas-URL får du i portalen när du prenumererar på *Species Observations – multiple data resources*. Repot använder **GBIF som standard** eftersom det fungerar utan nyckel; SOS kan kopplas in senare om du vill ha exakt samma filter som Artdatabankens tjänst.
+**Därefter:** `species_overlay_a.py --obs …/gbif_<AOI>.gpkg` eller `--obs …/sos_<AOI>.gpkg` `--rodlista …`
 
 ---
 
@@ -169,7 +171,17 @@ species_columns.md     # vilka kolumner du joinar på (scientificName, taxonId, 
 
 ## 3. Rödlistan – “senaste versionen”
 
-- **Använd alltid den version Artdatabanken anger som gällande** när du kör analysen, och **spara versionsår + nedladdningsdatum** i repot (textfil räcker).
+**Skript:** `scripts/python/fetch_swedish_redlist_gbif.py`
+
+- **Standard (`--edition 2025` eller utelämnad):** Hämtar **Rödlista 2025** som CSV från [ResearchData](https://researchdata.se/) (`Rodlistade_arter_2025.csv`; fältseparator `;`, kolumner bl.a. `Vetenskapligt_namn`, `Kategori`). Skriptet normaliserar till `rodlista.csv` med `scientific_name` och `redlist_category` under `data/raw/arter/rodlista/` samt skriver `rodlista_version.txt`.
+- **`--edition 2020`:** Hämtar GBIF IPT **DwC-arkiv** för Rödlista 2020 (zip) som tidigare — användbart för reproducerbar jämförelse mot äldre körningar.
+
+```bash
+python scripts/python/fetch_swedish_redlist_gbif.py
+python scripts/python/fetch_swedish_redlist_gbif.py --edition 2020
+```
+
+- **Använd alltid den version du uttryckligen valt** när du kör analysen, och **spara versionsår + nedladdningsdatum** i repot (textfil räcker).
 - När Rödlistan **byts ut** (vart femte år i praxis): kör om artleden, uppdatera `rodlista_version.txt`, notera i commit/rapport.
 - **Tolkning:** Rödlistan = **utdöenderisk i Sverige**, inte samma sak som “högt lokalt naturvärde”. Dokumentera att indexet är **artbevarande relevans**, inte NVI-substitut.
 
@@ -190,9 +202,11 @@ Välj **en primär observationskälla** först så du inte dubbelräknar samma f
 
 ## 5. Koppling till befintlig kod
 
-- **`config.py`:** `ARTER_*`, `SPECIES_AOI_BUFFER_M`, `SPECIES_OUTPUT_DIR` (skapas vid import om saknas).
+- **`config.py`:** `ARTER_*`, `SPECIES_AOI_BUFFER_M`, `SPECIES_OUTPUT_DIR` (skapas vid import om saknas); `NATURVARDSVERKET_DIR` / `PROTECTED_SITES_DIR` för skyddad natur (WFS) — se [`PIPELINE_METOD.md`](PIPELINE_METOD.md) §3.
+- **Observationer:** `fetch_public_observations.py` (GBIF, SOS, eller båda).
+- **Rödlista-CSV:** `fetch_swedish_redlist_gbif.py` (2025 ResearchData / 2020 GBIF IPT).
 - **Fas A:** `scripts/python/species_overlay_a.py` (klar).
-- **Fas B (plan):** ev. `WEIGHTS` utökad + raster i `data/processed/`; valfritt tillägg i `download_data.py` för API mot öppna tabeller.
+- **Fas B (plan):** ev. `WEIGHTS` utökad + raster i `data/processed/`.
 
 Fas B–C är ännu **roadmap**; se övriga avsnitt ovan.
 
@@ -207,4 +221,4 @@ Fas B–C är ännu **roadmap**; se övriga avsnitt ovan.
 
 ## Se även
 
-- [`PIPELINE_METOD.md`](PIPELINE_METOD.md) – nuvarande fjärranalys- och indexflöde utan artlager.
+- [`PIPELINE_METOD.md`](PIPELINE_METOD.md) – fjärranalys- och indexflöde; valfri **skyddad natur** (WFS) och showcase-figur `hotspot_protected_context.png`.

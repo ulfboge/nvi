@@ -336,6 +336,7 @@
     <span class="badge">NMD 2023 (Naturvårdsverket)</span>
     <span class="badge">GSD-Höjddata 1 m (Lantmäteriet)</span>
     <span class="badge">Avverkningsanmälningar (Skogsstyrelsen)</span>
+    <span class="badge">Skyddad natur (kontext, NV)</span>
     <span class="badge">Python · QGIS</span>
   </div>
 </div>
@@ -450,6 +451,24 @@
       Fuktindex från Lantmäteriets GSD-Höjddata 1m (lidar-TWI). Kontinuitetsindex från
       Skogsstyrelsens avverkningsanmälningar. Klassning percentilbaserad (p33/p67).
     </p>
+
+    <h3 id="karta-skydd" style="margin-top:2.5rem; font-size:1.35rem; color:var(--green-dark);">
+      Skyddad natur som kontext
+    </h3>
+    <p class="section-lead" style="margin-top:0.75rem;">
+      Formellt skyddade områden (naturreservat, Natura&nbsp;2000 m.m.) kan läggas ovanpå samma NVI-prioritering för tolkning:
+      var höga hotspot-värden redan ligger inom skydd, och var starka signaler finns <em>utanför</em> befintliga reservat.
+      Dessa polygoner <strong>ingår inte</strong> i viktningen av struktur-, kontinuitets- eller fuktindex — de är ett separat informationslager från Naturvårdsverkets INSPIRE-tjänst (WFS).
+      Figuren genereras med <code>generate_showcase.py</code> när filen <code>protected_sites_&lt;AOI&gt;.gpkg</code> finns (se <code>download_data.py --protected-sites-only</code>).
+    </p>
+    <div class="map-wrap">
+      <img src="assets/hotspot_protected_context.png"
+           alt="Hotspot-klasser med gula konturer för formellt skyddad natur enligt Naturvårdsverket">
+    </div>
+    <p class="map-caption">
+      Gula linjer: skyddade ytor (INSPIRE <code>ps:ProtectedSite</code>) inom samma utsnitt som hotspot-kartan.
+      Utsnittet följer WFS-hämtningens marginal runt AOI i pipelinen.
+    </p>
   </div>
 </section>
 
@@ -489,6 +508,13 @@
           <td>Skogsstyrelsen</td>
           <td>Polygon</td>
           <td>Kontinuitetsindex – störningshistorik sedan 2000-talet</td>
+          <td><span class="chip">Öppen data</span></td>
+        </tr>
+        <tr>
+          <td><span class="source-name">Skyddad natur (INSPIRE Protected Sites)</span></td>
+          <td>Naturvårdsverket</td>
+          <td>Polygon</td>
+          <td>Valfritt kontextlager i showcase — ingår <em>inte</em> i NVI-viktning; hämtas via WFS inom AOI + marginal</td>
           <td><span class="chip">Öppen data</span></td>
         </tr>
       </tbody>

@@ -11,10 +11,13 @@ Svenska datakällor för NVI-screening:
   4. Lantmäteriet GSD-Höjddata (STAC)      – lidar-DEM 2m
      KRÄVER gratis nyckel: https://opendata.lantmateriet.se/
      export LANTMATERIET_API_KEY=din_nyckel
+  5. Naturvårdsverket skyddad natur (WFS)  – polygoner inom AOI + marginal, ingen nyckel
+     INSPIRE ps:ProtectedSite — nationella zip-paket finns också på geodata.naturvardsverket.se
 
 Kör:
   python scripts/python/download_data.py
   python scripts/python/download_data.py --nmd-confirm   # inkl NMD (2,7 GB)
+  python scripts/python/download_data.py --protected-sites
 """
 
 import sys
@@ -27,8 +30,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from config import (
-    AOI_BBOX, NMD_DIR, SKOGSST_DIR, LM_DIR, SLU_DIR,
-    LANTMATERIET_API_KEY, EPSG_SWEREF
+    AOI_BBOX,
+    AOI_NAME,
+    NMD_DIR,
+    SKOGSST_DIR,
+    LM_DIR,
+    SLU_DIR,
+    PROTECTED_SITES_DIR,
+    LANTMATERIET_API_KEY,
+    EPSG_SWEREF,
 )
 
 try:
@@ -321,6 +331,131 @@ def _stac_search_all(headers: dict) -> list:
     return items
 
 
+# ── 5. Naturvårdsverket – skyddad natur (INSPIRE Protected Sites, WFS) ───────
+#
+# WFS 1.1.0 + bbox i EPSG:4258 fungerar mot GeoServer (WFS 2.0 bbox gav 0 träffar i test).
+# Nationell bulk: https://geodata.naturvardsverket.se/nedladdning/Inspire/ps/
+# ATOM: https://geodata.naturvardsverket.se/atom/inspire/ps/SE_ProtectedSites_serviceFeed.xml
+
+NV_PROTECTED_WFS = "https://geodata.naturvardsverket.se/inspire/ps/wfs"
+
+
+def _protected_site_enrich_properties(props: dict) -> None:
+    """Lägger till läsbara fält bredvid INSPIRE-nästlade JSON-strukturer."""
+    if not isinstance(props, dict):
+        return
+    iid = props.get("inspireID")
+    if isinstance(iid, dict) and iid.get("localId"):
+        props["nvr_inspire_local_id"] = str(iid["localId"])
+    sn = props.get("siteName")
+    try:
+        text = sn["GeographicalName"]["spelling"]["text"]
+        props["nvr_site_name"] = str(text) if text is not None else None
+    except (TypeError, KeyError):
+        props["nvr_site_name"] = None
+    sd = props.get("siteDesignation")
+    try:
+        des = sd["DesignationType"]["designation"]
+        if isinstance(des, dict):
+            props["nvr_designation"] = des.get("@href") or des.get("href")
+        else:
+            props["nvr_designation"] = str(des) if des is not None else None
+    except (TypeError, KeyError):
+        props["nvr_designation"] = None
+    cl = props.get("siteProtectionClassification")
+    props["nvr_protection_class"] = str(cl) if cl is not None else None
+
+
+def download_protected_sites(
+    *,
+    expand_deg: float = 0.05,
+    max_features: int = 50_000,
+    to_sweref: bool = True,
+    overwrite: bool = False,
+) -> None:
+    """
+    Hämtar ps:ProtectedSite som GeoJSON via WFS inom AOI_BBOX utökad med expand_deg (grader ~ lat).
+    Sparar GeoPackage under data/raw/naturvardsverket/skyddad_natur/.
+    """
+    print("\n[Naturvardsverket - skyddad natur (WFS INSPIRE Protected Sites)]")
+    print(f"  WFS: {NV_PROTECTED_WFS}")
+
+    gpkg = PROTECTED_SITES_DIR / f"protected_sites_{AOI_NAME}.gpkg"
+    meta = PROTECTED_SITES_DIR / f"protected_sites_{AOI_NAME}_metadata.txt"
+
+    if gpkg.exists() and not overwrite:
+        print(f"  [skip] {gpkg.name} finns redan (anvand --protected-sites-overwrite)")
+        return
+
+    lo = AOI_BBOX["min_lon"] - expand_deg
+    la0 = AOI_BBOX["min_lat"] - expand_deg
+    hi = AOI_BBOX["max_lon"] + expand_deg
+    la1 = AOI_BBOX["max_lat"] + expand_deg
+    bbox = f"{lo},{la0},{hi},{la1},EPSG:4258"
+
+    params = {
+        "service": "WFS",
+        "version": "1.1.0",
+        "request": "GetFeature",
+        "typeName": "ps:ProtectedSite",
+        "bbox": bbox,
+        "outputFormat": "application/json",
+        "maxFeatures": str(max_features),
+    }
+    url = NV_PROTECTED_WFS + "?" + urllib.parse.urlencode(params)
+
+    try:
+        print(
+            f"  Bbox EPSG:4258 (AOI + {expand_deg} deg): "
+            f"{lo:.5f},{la0:.5f},{hi:.5f},{la1:.5f}"
+        )
+        resp = requests.get(url, timeout=300)
+        resp.raise_for_status()
+        data = resp.json()
+        features = data.get("features") or []
+        n = len(features)
+        print(f"  Hamtade {n} ytor (max {max_features})")
+        if n >= max_features:
+            print(
+                "  [varning] Träffar maxFeatures-gransen -- vid behov: "
+                "ladda nationella zip/ATOM fran "
+                "https://geodata.naturvardsverket.se/nedladdning/Inspire/ps/"
+            )
+
+        for f in features:
+            if isinstance(f, dict) and isinstance(f.get("properties"), dict):
+                _protected_site_enrich_properties(f["properties"])
+
+        if not features:
+            gdf = gpd.GeoDataFrame(geometry=[], crs="EPSG:4258")
+        else:
+            gdf = gpd.GeoDataFrame.from_features(features, crs="EPSG:4258")
+
+        if to_sweref and len(gdf) > 0:
+            gdf = gdf.to_crs(epsg=EPSG_SWEREF)
+
+        gdf.to_file(gpkg, driver="GPKG", layer="protected_sites")
+        print(f"  [ok]   {gpkg}")
+
+        crs_note = f"EPSG:{EPSG_SWEREF}" if to_sweref else "EPSG:4258"
+        meta.write_text(
+            "Kalla: Naturvardsverket INSPIRE Protected Sites (WFS)\n"
+            f"WFS: {NV_PROTECTED_WFS}\n"
+            f"Typ: ps:ProtectedSite\n"
+            f"AOI: {AOI_NAME}\n"
+            f"Bbox (EPSG:4258, AOI+margin): {lo},{la0},{hi},{la1}\n"
+            f"Antal ytor: {n}\n"
+            f"CRS i GPKG: {crs_note}\n"
+            "Nationell bulk / ATOM:\n"
+            "  https://geodata.naturvardsverket.se/nedladdning/Inspire/ps/\n"
+            "  https://geodata.naturvardsverket.se/atom/inspire/ps/SE_ProtectedSites_serviceFeed.xml\n",
+            encoding="utf-8",
+        )
+        print(f"  [ok]   {meta.name}")
+    except Exception as e:
+        print(f"  [FEL]  {e}")
+
+
 def download_lantmateriet_dem() -> None:
     print("\n[Lantmateriet GSD-Hojddata (STAC)]")
 
@@ -367,16 +502,51 @@ def main():
     parser = argparse.ArgumentParser(description="Ladda ner svenska NVI-data")
     parser.add_argument("--nmd-confirm", action="store_true",
                         help="Bekrafta nedladdning av NMD (~2,7 GB)")
+    parser.add_argument(
+        "--protected-sites",
+        action="store_true",
+        help="Hämta skyddade områden (Naturvårdsverket WFS) för AOI + marginal",
+    )
+    parser.add_argument(
+        "--protected-sites-only",
+        action="store_true",
+        help="Kör endast skyddad natur (inga andra källor)",
+    )
+    parser.add_argument(
+        "--protected-expand-deg",
+        type=float,
+        default=0.05,
+        metavar="DEG",
+        help="Marginal runt AOI_BBOX i grader (standard 0.05 ~ några km)",
+    )
+    parser.add_argument(
+        "--protected-sites-overwrite",
+        action="store_true",
+        help="Skriv om befintlig protected_sites_<AOI>.gpkg",
+    )
     args = parser.parse_args()
 
     print("=" * 60)
     print("Laddar ner svenska referensdata for NVI-screening")
     print("=" * 60)
 
+    if args.protected_sites_only:
+        download_protected_sites(
+            expand_deg=args.protected_expand_deg,
+            overwrite=args.protected_sites_overwrite,
+        )
+        print("\n[klar] Nedladdning avslutad.")
+        return
+
     download_nmd(confirm=args.nmd_confirm)
     download_skogsstyrelsen()
     download_slu_grunddata()
     download_lantmateriet_dem()
+    if args.protected_sites:
+        download_protected_sites(
+            expand_deg=args.protected_expand_deg,
+            overwrite=args.protected_sites_overwrite,
+        )
 
     print("\n[klar] Nedladdning avslutad.")
 

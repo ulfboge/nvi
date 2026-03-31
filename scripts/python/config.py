@@ -50,8 +50,12 @@ SKOGSST_DIR      = RAW_DIR / "skogsstyrelsen" # Skogsstyrelsen avverkningar
 LM_DIR           = RAW_DIR / "lantmateriet"   # Lantmäteriet höjddata
 SLU_DIR          = RAW_DIR / "slu"            # SLU Skogliga Grunddata
 S2_EXPORT_DIR    = RAW_DIR / "gee_exports"    # GEE-exporterade GeoTIFF:er
+# Naturvårdsverket – skyddad natur (INSPIRE Protected Sites, WFS)
+NATURVARDSVERKET_DIR = RAW_DIR / "naturvardsverket"
+PROTECTED_SITES_DIR  = NATURVARDSVERKET_DIR / "skyddad_natur"
 
 for d in [NMD_DIR, SKOGSST_DIR, LM_DIR, SLU_DIR, S2_EXPORT_DIR,
+          NATURVARDSVERKET_DIR, PROTECTED_SITES_DIR,
           PROC_DIR, FIGURES_DIR, RASTERS_DIR, SPECIES_OUTPUT_DIR,
           ARTER_OBS_DIR, ARTER_RODLISTA_DIR, ARTER_DERIVED_DIR]:
     d.mkdir(parents=True, exist_ok=True)

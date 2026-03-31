@@ -1,6 +1,14 @@
 """
 generate_showcase.py
 Genererar showcase-figurer för GitHub Pages.
+
+  * hotspot_showcase.png      – hotspot + delindex (som tidigare)
+  * method_diagram.png        – processkarta
+  * hotspot_protected_context.png – samma hotspot som underlag med formellt skydd
+    (Naturvårdsverket INSPIRE WFS) som kontext; kräver
+    data/raw/naturvardsverket/skyddad_natur/protected_sites_<AOI>.gpkg
+    (t.ex. download_data.py --protected-sites-only)
+
 Kör: python scripts/python/generate_showcase.py
 """
 
@@ -16,7 +24,12 @@ from pathlib import Path
 from pyproj import Transformer
 
 sys.path.insert(0, str(Path(__file__).parent))
-from config import AOI_NAME, PROC_DIR, RASTERS_DIR
+from config import AOI_NAME, PROC_DIR, PROTECTED_SITES_DIR, RASTERS_DIR
+
+try:
+    import geopandas as gpd
+except ImportError:
+    gpd = None  # type: ignore
 
 DOCS_ASSETS = Path(__file__).resolve().parents[2] / "docs" / "assets"
 DOCS_ASSETS.mkdir(parents=True, exist_ok=True)
@@ -277,6 +290,18 @@ def make_hotspot_figure() -> None:
     plt.close()
 
 
+def _relative_luminance_srgb(hex_color: str) -> float:
+    """WCAG relative luminance 0–1; högre värde = ljusare bakgrund."""
+    h = hex_color.strip().lstrip("#")
+    r, g, b = (int(h[i : i + 2], 16) / 255.0 for i in (0, 2, 4))
+
+    def linearize(c: float) -> float:
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+
+    R, G, B = linearize(r), linearize(g), linearize(b)
+    return 0.2126 * R + 0.7152 * G + 0.0722 * B
+
+
 def make_method_diagram() -> None:
     """Enkel processkarta – 6 steg som pil-diagram."""
 
@@ -289,6 +314,9 @@ def make_method_diagram() -> None:
         ("6", "Reproducerbarhet",  "Python · QGIS\nNytt område = ny kör", "#b7e4c7"),
     ]
 
+    # Ljus bakgrund → mörk text (vit text på de ljusaste gröna var oläsbar).
+    _lum_thresh = 0.43
+
     fig, ax = plt.subplots(figsize=(14, 3.2), facecolor="#f5f7f5")
     ax.set_xlim(0, 14)
     ax.set_ylim(0, 1)
@@ -299,11 +327,18 @@ def make_method_diagram() -> None:
         x = i * step_w + step_w * 0.1
         w = step_w * 0.75
 
+        lum = _relative_luminance_srgb(color)
+        dark_text = lum > _lum_thresh
+        fg = "#0d2818" if dark_text else "#ffffff"
+        fg_muted = "#1b4332" if dark_text else "#ffffff"
+        desc_alpha = 0.92 if dark_text else 0.9
+        edge = "#1b4332" if dark_text else "#ffffff"
+
         # Box
         rect = mpatches.FancyBboxPatch(
             (x, 0.12), w, 0.76,
             boxstyle="round,pad=0.02",
-            facecolor=color, edgecolor="white", linewidth=2,
+            facecolor=color, edgecolor=edge, linewidth=2,
             zorder=2
         )
         ax.add_patch(rect)
@@ -319,11 +354,11 @@ def make_method_diagram() -> None:
 
         # Text
         ax.text(x + w/2, 0.72, f"Steg {num}", ha="center", va="center",
-                fontsize=8, color="white", fontweight="bold", zorder=3)
+                fontsize=8, color=fg, fontweight="bold", zorder=3)
         ax.text(x + w/2, 0.52, title, ha="center", va="center",
-                fontsize=9, color="white", fontweight="bold", zorder=3)
+                fontsize=9, color=fg, fontweight="bold", zorder=3)
         ax.text(x + w/2, 0.28, desc, ha="center", va="center",
-                fontsize=7, color="white", alpha=0.9, zorder=3,
+                fontsize=7, color=fg_muted, alpha=desc_alpha, zorder=3,
                 linespacing=1.4)
 
     fig.text(
@@ -338,8 +373,111 @@ def make_method_diagram() -> None:
     plt.close()
 
 
+def make_hotspot_protected_context_figure() -> None:
+    """
+    Hotspot-raster med overlay av skyddade områden (informationslager — ingår ej i NVI-viktning).
+    """
+    if gpd is None:
+        print("[skip] hotspot_protected_context.png — saknar geopandas")
+        return
+
+    gpkg = PROTECTED_SITES_DIR / f"protected_sites_{AOI_NAME}.gpkg"
+    tif_path = _hotspot_class_path()
+    if not tif_path.exists():
+        print("[skip] hotspot_protected_context.png — saknar hotspot_class.tif")
+        return
+    if not gpkg.exists():
+        print(
+            f"[skip] hotspot_protected_context.png — saknar {gpkg.name}\n"
+            "       Kor: python scripts/python/download_data.py --protected-sites-only"
+        )
+        return
+
+    with rasterio.open(tif_path) as src:
+        cls = src.read(1).astype(float)
+        nd = src.nodata
+        if nd is not None:
+            cls[cls == nd] = np.nan
+        h, w = cls.shape
+        transform = src.transform
+        crs = src.crs
+        from rasterio.transform import array_bounds
+
+        left, bottom, right, top = array_bounds(h, w, transform)
+
+    gdf = gpd.read_file(gpkg)
+    if gdf.crs is None:
+        print("[skip] hotspot_protected_context.png — GPKG saknar CRS")
+        return
+    gdf = gdf.to_crs(crs)
+
+    fig, ax = plt.subplots(figsize=(12, 10), facecolor="#f5f7f5")
+    cmap_cls = mcolors.ListedColormap(["#4575b4", "#fee090", "#d73027"])
+    norm_cls = mcolors.BoundaryNorm([0.5, 1.5, 2.5, 3.5], 3)
+    ax.imshow(
+        np.where(cls > 0, cls, np.nan),
+        cmap=cmap_cls,
+        norm=norm_cls,
+        interpolation="nearest",
+        aspect="equal",
+        extent=(left, right, bottom, top),
+        origin="upper",
+    )
+    gdf.plot(
+        ax=ax,
+        facecolor=(0, 0, 0, 0),
+        edgecolor="#f4d35e",
+        linewidth=1.35,
+        zorder=5,
+    )
+    ax.set_xlim(left, right)
+    ax.set_ylim(bottom, top)
+    ax.set_aspect("equal", adjustable="box")
+    ax.set_title(
+        "NVI-prioritet och formellt skyddad natur (kontext)\n"
+        f"{AOI_NAME.replace('_', ' ').title()} — skyddade ytor enligt Naturvårdsverket (INSPIRE)",
+        fontsize=13,
+        fontweight="bold",
+        color="#1b4332",
+        pad=12,
+    )
+    ax.set_xlabel(f"Östning (m) · {crs}", fontsize=9, color="#555")
+    ax.set_ylabel("Northing (m)", fontsize=9, color="#555")
+
+    leg = [
+        mpatches.Patch(color="#d73027", label="Klass 3 – Hotspot"),
+        mpatches.Patch(color="#fee090", label="Klass 2 – Mellan"),
+        mpatches.Patch(color="#4575b4", label="Klass 1 – Låg"),
+        mpatches.Patch(
+            facecolor="none",
+            edgecolor="#f4d35e",
+            linewidth=2,
+            label="Formellt skydd (WFS ps:ProtectedSite)",
+        ),
+    ]
+    ax.legend(handles=leg, loc="lower left", fontsize=9, framealpha=0.95, edgecolor="#ccc")
+
+    fig.text(
+        0.5,
+        0.02,
+        "Skyddade polygoner ingår inte i NVI-modellens viktning — de visas för tolkning "
+        "(t.ex. var hög prioritet möter eller ligger utanför reservat). "
+        "Källa skydd: Naturvårdsverket INSPIRE Protected Sites (WFS).",
+        ha="center",
+        fontsize=9,
+        color="#555",
+        style="italic",
+    )
+
+    out = DOCS_ASSETS / "hotspot_protected_context.png"
+    fig.savefig(out, dpi=150, bbox_inches="tight", facecolor=fig.get_facecolor())
+    print(f"[ok] {out}")
+    plt.close()
+
+
 if __name__ == "__main__":
     print("Genererar showcase-figurer ...")
     make_hotspot_figure()
     make_method_diagram()
+    make_hotspot_protected_context_figure()
     print("Klart – se docs/assets/")

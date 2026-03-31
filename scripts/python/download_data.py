@@ -537,6 +537,52 @@ def _debug_print_protected_sites_gpkg(gdf: gpd.GeoDataFrame, tag: str = "") -> N
         )
 
 
+_INSPIRE_BLOB_NAMES = frozenset(
+    n.lower()
+    for n in (
+        "inspireID",
+        "siteDesignation",
+        "siteName",
+        "legalFoundationDocument",
+        "siteProtectionClassification",
+        "legalFoundationDate",
+        "featureType",
+        "typeName",
+    )
+)
+
+
+def _protected_sites_final_schema_cleanup(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """
+    Tar bort INSPIRE-råkolumner som annars kan följa med som dict/sträng-blobs i QGIS.
+    Rensar även kolumner där första värdet är dict med @dataType eller ser ut som strängifierad dict.
+    """
+    if gdf.empty and len(gdf.columns) <= 1:
+        return gdf
+    geo_nm = gdf.geometry.name
+    drop: list[str] = []
+    for c in gdf.columns:
+        if c == geo_nm:
+            continue
+        cl = str(c).lower()
+        if cl in _INSPIRE_BLOB_NAMES or str(c).startswith("@"):
+            drop.append(c)
+            continue
+        ser = gdf[c].dropna()
+        if ser.empty:
+            continue
+        v = ser.iloc[0]
+        if isinstance(v, dict) and "@dataType" in v:
+            drop.append(c)
+            continue
+        if isinstance(v, str) and v.strip().startswith("{'@dataType'"):
+            drop.append(c)
+    if drop:
+        gdf = gdf.drop(columns=drop, errors="ignore")
+        print(f"  [info] Tog bort {len(drop)} rå-/blob-kolumner före spar (t.ex. INSPIRE JSON).")
+    return gdf
+
+
 def download_protected_sites(
     *,
     expand_deg: float = 0.05,
@@ -653,8 +699,16 @@ def download_protected_sites(
         if to_sweref and len(gdf) > 0:
             gdf = gdf.to_crs(epsg=EPSG_SWEREF)
 
+        gdf = _protected_sites_final_schema_cleanup(gdf)
+        # Nytt GPKG från scratch — undvik att gammalt SQLite-schema/lager lämnar kvar fält (QGIS visar då siteName m.m.).
+        if gpkg.exists():
+            gpkg.unlink(missing_ok=True)
         gdf.to_file(gpkg, driver="GPKG", layer="protected_sites")
         print(f"  [ok]   {gpkg}")
+        print(
+            "  [tips] I QGIS: ta bort lagret ur projektet och lägg in GPKG på nytt "
+            "om attributtabellen fortfarande visar gamla kolumner (cache)."
+        )
         _debug_print_protected_sites_gpkg(gdf, "efter nedladdning")
 
         crs_note = f"EPSG:{EPSG_SWEREF}" if to_sweref else "EPSG:4258"

@@ -13,7 +13,8 @@ load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 # Djupedal, Hisingen, Göteborg – NVI utförd av Länsstyrelsen Västra Götaland
 # (Rapport 2022:42, Svensk Naturförvaltning AB). Ekdominerad blandskog, ca 113 ha
 # inventerad yta. Klass 2: 43 ha, Klass 3: 56 ha. Bra valideringsfall.
-AOI_NAME = "djupedal_hisingen"
+AOI_NAME  = "djupedal_hisingen"
+AOI_LABEL = "Djupedal, Hisingen, Göteborg"
 AOI_BBOX = {
     "min_lon": 11.890,
     "max_lon": 11.925,

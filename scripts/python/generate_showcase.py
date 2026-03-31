@@ -26,7 +26,7 @@ from pyproj import Transformer
 from shapely.geometry import box
 
 sys.path.insert(0, str(Path(__file__).parent))
-from config import AOI_NAME, PROC_DIR, PROTECTED_SITES_DIR, RASTERS_DIR
+from config import AOI_NAME, AOI_LABEL, PROC_DIR, PROTECTED_SITES_DIR, RASTERS_DIR
 
 try:
     import geopandas as gpd
@@ -176,7 +176,7 @@ def _add_overview_inset(ax_parent, tif_path: Path) -> None:
     ax_in.text(
         0.5,
         -0.12,
-        "Läge: Fiby urskog (AOI) · Uppland",
+        f"Läge: {AOI_LABEL} (AOI)",
         transform=ax_in.transAxes,
         ha="center",
         fontsize=8,
@@ -197,7 +197,7 @@ def make_hotspot_figure() -> None:
     # Rubrik ovanför rutnätet; datakällor längst ned (undviker överlapp med karttitlar)
     fig = plt.figure(figsize=(18, 11.5), facecolor="#f5f7f5")
     fig.suptitle(
-        "Geodatadriven naturvärdesinventering  |  Testområde: Fiby urskog, Uppland",
+        f"Geodatadriven naturvärdesinventering  |  Testområde: {AOI_LABEL}",
         fontsize=14,
         fontweight="bold",
         color="#1b4332",

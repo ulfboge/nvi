@@ -179,6 +179,8 @@ python scripts/python/hotspot_model.py
 python scripts/python/generate_showcase.py
 ```
 
+**Fas A (art + Rödlista, valfritt):** `python scripts/python/species_overlay_a.py --obs … --rodlista …` — se [`SPECIES_RODLISTA.md`](SPECIES_RODLISTA.md).
+
 Om något steg saknar data, läs terminalutskriften – den anger vilken **källa** som användes (SLU, NMD, Skogsstyrelsen, fallback …).
 
 ---

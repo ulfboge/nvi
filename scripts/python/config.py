@@ -30,6 +30,15 @@ PROC_DIR      = DATA_DIR / "processed"
 OUTPUTS_DIR   = REPO_DIR / "outputs"
 FIGURES_DIR   = OUTPUTS_DIR / "figures"
 RASTERS_DIR   = OUTPUTS_DIR / "rasters"
+SPECIES_OUTPUT_DIR = OUTPUTS_DIR / "species"  # Fas A: overlay (gpkg + raster)
+
+# Artdata (fas A) – lägg manuellt under data/raw/arter/ (mappen ignoreras av git)
+ARTER_ROOT         = RAW_DIR / "arter"
+ARTER_OBS_DIR      = ARTER_ROOT / "observations"
+ARTER_RODLISTA_DIR = ARTER_ROOT / "rodlista"
+ARTER_DERIVED_DIR  = ARTER_ROOT / "derived"
+# Buffer runt AOI (meter) när observationer filtreras (WGS84-bbox expanderas ungefärligt)
+SPECIES_AOI_BUFFER_M = 5000
 
 # Svenska datakällor
 _NMD_ROOT        = Path("E:/nmd")
@@ -43,7 +52,8 @@ SLU_DIR          = RAW_DIR / "slu"            # SLU Skogliga Grunddata
 S2_EXPORT_DIR    = RAW_DIR / "gee_exports"    # GEE-exporterade GeoTIFF:er
 
 for d in [NMD_DIR, SKOGSST_DIR, LM_DIR, SLU_DIR, S2_EXPORT_DIR,
-          PROC_DIR, FIGURES_DIR, RASTERS_DIR]:
+          PROC_DIR, FIGURES_DIR, RASTERS_DIR, SPECIES_OUTPUT_DIR,
+          ARTER_OBS_DIR, ARTER_RODLISTA_DIR, ARTER_DERIVED_DIR]:
     d.mkdir(parents=True, exist_ok=True)
 
 # ── Fallback-sökvägar (globala dataset från tidigare körning) ────────────────

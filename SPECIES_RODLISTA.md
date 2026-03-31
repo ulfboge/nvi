@@ -6,17 +6,45 @@ Internt dokument (samma som `PIPELINE_METOD.md`: **inte** menat som GitHub Pages
 
 ## 1. Rekommenderad ordning (tre faser)
 
-### Fas A – Överlagring (minsta insats, störst lärande)
+### Fas A – Överlagring (**implementerad**)
 
 **Syfte:** Se var **kända fynd** och **rödlistade arter** sammanfaller med befintlig `hotspot_class` / `nvi_score` – utan att ändra kärnpipelinen.
 
-1. Exportera observationer för **AOI + rimlig buffer** (t.ex. 5–10 km om du vill fånga närliggande signal) från en källa du får använda i just ditt projekt (se avsnitt 4).
-2. Ladda ned **senaste Rödlistan** från [Artdatabanken / SLU](https://www.artdatabanken.se/) som tabell (art ↔ kategori: CR, EN, VU, NT, LC, … + gärna **versionsår**).
-3. Koppla observationer → art → **rödlistkategori** (via vetenskapligt namn eller Artdatabankens **Taxon ID** om du har det – minskar stavfel).
-4. I **QGIS eller ett litet Python-skript**: punktlager + ev. heatmap / hexagonräkning / rasterisering till samma **SWEREF 99 TM** och ungefär samma upplösning som dina index (t.ex. 10 m eller 100 m – dokumentera valet).
-5. **Jämför visuellt eller med enkel logik:** t.ex. “cell är `flag_art` om ≥1 fynd av VU+ inom cell” eller “zonal statistics mot inventeringspolygoner”.
+**Skript:** `scripts/python/species_overlay_a.py`
 
-**Leverans:** Kartlager + kort metodnotis (datakälla, datum, rödlisteversion). Ingen ändring av `compute_indices.py` krävs.
+1. Lägg (eller exportera) data lokalt, t.ex.  
+   `data/raw/arter/observations/` och `data/raw/arter/rodlista/` (mapparna skapas vid körning; innehållet versionshanteras normalt **inte** i git).
+2. **Rödlista:** CSV med minst två kolumner – vetenskapligt namn och kategori. Standardkolumnnamn: `scientific_name`, `redlist_category`. Koder och svenska namn som `VU`, `Sårbar`, `Akut hotad`, `LC`, `Livskraftig` m.fl. känns igen (se `_THREAT_RANK` i skriptet).
+3. **Observationer:** GeoPackage / GeoJSON / Shapefile **eller** CSV med lon/lat. CSV: kolumner `decimalLongitude` + `decimalLatitude` (GBIF-liknande) hittas automatiskt; annars ange `--obs-lon-col` / `--obs-lat-col`.
+4. Kör:
+
+```bash
+python scripts/python/species_overlay_a.py \
+  --obs data/raw/arter/observations/dina_fynd.gpkg \
+  --rodlista data/raw/arter/rodlista/rodlista.csv
+```
+
+**Utdata** (under `outputs/species/`, återskapas vid varje körning):
+
+| Fil | Innehåll |
+|-----|----------|
+| `{AOI}_observations_rodlista.gpkg` | Alla punkter inom AOI + buffer, med rödlistfält (`_cat_raw`, `_threat_rank`, `_rodlista_match` m.m.) |
+| `{AOI}_species_obs_count.tif` | Antal observationer per pixel (samma grid som `structure_index` om den finns, annars 10 m-grid över AOI) |
+| `{AOI}_species_threat_obs_count.tif` | Antal observationer per pixel där arten har **hotnivå ≥ VU** (standard `--min-threat-rank 2`; höj till 3 för EN+). |
+
+**Inställningar i `config.py`:** `SPECIES_AOI_BUFFER_M` (standard 5000 m), `SPECIES_OUTPUT_DIR`.
+
+**Miniexempel** (ingen känslig data, för att testa kedjan):
+
+```bash
+python scripts/python/species_overlay_a.py \
+  --obs examples/species/obs_minimal.csv \
+  --rodlista examples/species/rodlista_minimal.csv
+```
+
+5. **QGIS:** lägg `hotspot_class.tif` / `nvi_score.tif` som botten, öppna GPKG + de två art-rasterna, jämför visuellt.
+
+**Leverans:** Kartlager + raster; dokumentera datakälla, datum och rödlisteversion i t.ex. `data/raw/arter/rodlista/rodlista_version.txt`. `compute_indices.py` ändras inte.
 
 ---
 
@@ -90,13 +118,13 @@ Välj **en primär observationskälla** först så du inte dubbelräknar samma f
 
 ---
 
-## 5. Koppling till befintlig kod (när du är redo)
+## 5. Koppling till befintlig kod
 
-- **`config.py`:** ny konstant t.ex. `ARTER_DIR = RAW_DIR / "arter"` och ev. `WEIGHTS` utökad *om* du implementerar Fas B.
-- **`download_data.py`:** valfritt tillägg som hämtar *publika* tabeller (om API tillåts) – ofta enklare att **manuellt** lägga filer i `data/raw/arter/` tills flödet stabiliserats.
-- **Nytt skript (förslag):** `scripts/python/build_species_layer.py` som läser `observations/` + `rodlista/` och skriver `data/processed/{AOI}_species_relevance.tif` (eller bara GeoPackage för Fas A).
+- **`config.py`:** `ARTER_*`, `SPECIES_AOI_BUFFER_M`, `SPECIES_OUTPUT_DIR` (skapas vid import om saknas).
+- **Fas A:** `scripts/python/species_overlay_a.py` (klar).
+- **Fas B (plan):** ev. `WEIGHTS` utökad + raster i `data/processed/`; valfritt tillägg i `download_data.py` för API mot öppna tabeller.
 
-Inget av ovan är implementerat i repot ännu; det här dokumentet är **roadmap**.
+Fas B–C är ännu **roadmap**; se övriga avsnitt ovan.
 
 ---
 

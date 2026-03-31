@@ -19,9 +19,11 @@ import matplotlib.colors as mcolors
 import matplotlib.patches as mpatches
 import matplotlib.gridspec as gridspec
 import matplotlib.patheffects as pe
+import matplotlib.ticker as mticker
 from pathlib import Path
 
 from pyproj import Transformer
+from shapely.geometry import box
 
 sys.path.insert(0, str(Path(__file__).parent))
 from config import AOI_NAME, PROC_DIR, PROTECTED_SITES_DIR, RASTERS_DIR
@@ -405,11 +407,27 @@ def make_hotspot_protected_context_figure() -> None:
 
         left, bottom, right, top = array_bounds(h, w, transform)
 
-    gdf = gpd.read_file(gpkg)
+    try:
+        gdf = gpd.read_file(gpkg, layer="protected_sites")
+    except Exception:
+        gdf = gpd.read_file(gpkg)
     if gdf.crs is None:
         print("[skip] hotspot_protected_context.png — GPKG saknar CRS")
         return
     gdf = gdf.to_crs(crs)
+    view = box(left, bottom, right, top)
+    in_view = gdf.geometry.intersects(view)
+    n_total = len(gdf)
+    n_visible = int(in_view.sum())
+    tb = gdf.total_bounds.tolist()
+    print(
+        f"  [debug] protected sites: {n_total} polygoner, total_bounds={tb}, "
+        f"skär hotspot-utsnitt: {n_visible}"
+    )
+
+    # Tydlig kant mot rastrarna; cyan (#00ffff) syns dåligt mot ljusa pixlar.
+    _prot_edge = "#c9a227"
+    _prot_lw = 2.4
 
     fig, ax = plt.subplots(figsize=(12, 10), facecolor="#f5f7f5")
     cmap_cls = mcolors.ListedColormap(["#4575b4", "#fee090", "#d73027"])
@@ -423,13 +441,15 @@ def make_hotspot_protected_context_figure() -> None:
         extent=(left, right, bottom, top),
         origin="upper",
     )
-    gdf.plot(
-        ax=ax,
-        facecolor=(0, 0, 0, 0),
-        edgecolor="#ffffff",
-        linewidth=1.8,
-        zorder=5,
-    )
+    gdf_vis = gdf.loc[in_view]
+    if not gdf_vis.empty:
+        gdf_vis.plot(
+            ax=ax,
+            facecolor=(0, 0, 0, 0),
+            edgecolor=_prot_edge,
+            linewidth=_prot_lw,
+            zorder=5,
+        )
     ax.set_xlim(left, right)
     ax.set_ylim(bottom, top)
     ax.set_aspect("equal", adjustable="box")
@@ -443,6 +463,40 @@ def make_hotspot_protected_context_figure() -> None:
     )
     ax.set_xlabel(f"Östning (m) · {crs}", fontsize=9, color="#555")
     ax.set_ylabel("Northing (m)", fontsize=9, color="#555")
+    ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, p: f"{x:.0f}"))
+    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, p: f"{x:.0f}"))
+    ax.xaxis.offsetText.set_visible(False)
+    ax.yaxis.offsetText.set_visible(False)
+
+    if n_total == 0:
+        ax.text(
+            0.5,
+            0.94,
+            "Inga skyddade ytor i GPKG (tom nedladdning).",
+            transform=ax.transAxes,
+            ha="center",
+            va="top",
+            fontsize=10,
+            color="#7f2d2d",
+            fontweight="bold",
+            bbox=dict(boxstyle="round,pad=0.35", facecolor="white", edgecolor="#ccc", alpha=0.92),
+            zorder=6,
+        )
+    elif n_visible == 0:
+        ax.text(
+            0.5,
+            0.94,
+            "Skyddade ytor finns i GPKG men ingen skär detta kartutsnitt\n"
+            "(rasterns utbredning) — de kan ligga strax utanför eller WFS-bboxen missade området.",
+            transform=ax.transAxes,
+            ha="center",
+            va="top",
+            fontsize=9,
+            color="#5c4a00",
+            fontweight="bold",
+            bbox=dict(boxstyle="round,pad=0.35", facecolor="#fffbe6", edgecolor="#c9a227", alpha=0.95),
+            zorder=6,
+        )
 
     leg = [
         mpatches.Patch(color="#d73027", label="Klass 3 – Hotspot"),
@@ -450,7 +504,7 @@ def make_hotspot_protected_context_figure() -> None:
         mpatches.Patch(color="#4575b4", label="Klass 1 – Låg"),
         mpatches.Patch(
             facecolor="none",
-            edgecolor="#ffffff",
+            edgecolor=_prot_edge,
             linewidth=2,
             label="Formellt skydd (WFS ps:ProtectedSite)",
         ),

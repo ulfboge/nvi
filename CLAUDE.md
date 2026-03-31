@@ -28,8 +28,11 @@ python scripts/python/hotspot_model.py
 # 4. Regenerate showcase figures for GitHub Pages (hämtar bakgrundskarta; kräver nätverk)
 python scripts/python/generate_showcase.py
 
-# 5. (Optional, fas A) Artobservationer + Rödlista → GPKG + overlay-raster i outputs/species/
-python scripts/python/species_overlay_a.py --obs data/raw/arter/observations/… --rodlista data/raw/arter/rodlista/…
+# 5a. (Optional) Hämta öppna observationer för AOI från GBIF (ingen nyckel)
+python scripts/python/fetch_public_observations.py
+
+# 5b. (Optional, fas A) Artobservationer + Rödlista → GPKG + overlay-raster i outputs/species/
+python scripts/python/species_overlay_a.py --obs data/raw/arter/observations/gbif_fiby_urskog.gpkg --rodlista data/raw/arter/rodlista/…
 ```
 
 Step 2 depends on step 1 outputs. Step 4 depends on step 3 output (`outputs/rasters/fiby_urskog_hotspot_class.tif`) and step 2 outputs in `data/processed/`.

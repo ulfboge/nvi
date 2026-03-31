@@ -4,6 +4,25 @@ Internt dokument (samma som `PIPELINE_METOD.md`: **inte** menat som GitHub Pages
 
 ---
 
+## 0. Hämta öppna observationer (GBIF) för AOI
+
+**Skript:** `scripts/python/fetch_public_observations.py`
+
+Hämtar poster från **[GBIF Occurrence API](https://www.gbif.org/developer/summary)** inom **samma polygon som `AOI_BBOX`** i `config.py`. **Ingen API-nyckel.** Många svenska fynd (inkl. material från **Artportalen**) finns i GBIF som dataset *Artportalen* — men **inte** skyddsklassade eller diffuserade poster i den omfattning som Artportalen döljer; det följer datavärdarnas publiceringsregler.
+
+```bash
+python scripts/python/fetch_public_observations.py
+python scripts/python/fetch_public_observations.py --year-from 2010 --year-to 2024 --max-records 15000
+```
+
+**Utdata:** `data/raw/arter/observations/gbif_<AOI_NAME>.gpkg` + `gbif_<AOI>_metadata.txt` (citeringsinfo). Mappen `data/raw/` är gitignorerad.
+
+**Därefter:** `species_overlay_a.py --obs …/gbif_fiby_urskog.gpkg --rodlista …`
+
+**SLU SOS / Artportalen-API direkt:** kräver [gratis prenumeration](https://api-portal.artdatabanken.se/) och header `Ocp-Apim-Subscription-Key`. Bas-URL får du i portalen när du prenumererar på *Species Observations – multiple data resources*. Repot använder **GBIF som standard** eftersom det fungerar utan nyckel; SOS kan kopplas in senare om du vill ha exakt samma filter som Artdatabankens tjänst.
+
+---
+
 ## 1. Rekommenderad ordning (tre faser)
 
 ### Fas A – Överlagring (**implementerad**)

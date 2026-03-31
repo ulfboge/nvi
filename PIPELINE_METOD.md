@@ -181,7 +181,7 @@ python scripts/python/hotspot_model.py
 python scripts/python/generate_showcase.py
 ```
 
-**Fas A (art + Rödlista, valfritt):** `python scripts/python/species_overlay_a.py --obs … --rodlista …` — se [`SPECIES_RODLISTA.md`](SPECIES_RODLISTA.md).
+**Öppna observationer (GBIF):** `python scripts/python/fetch_public_observations.py` — sparar GPKG under `data/raw/arter/observations/`. **Fas A (overlay):** `species_overlay_a.py --obs … --rodlista …` — se [`SPECIES_RODLISTA.md`](SPECIES_RODLISTA.md).
 
 Om något steg saknar data, läs terminalutskriften – den anger vilken **källa** som användes (SLU, NMD, Skogsstyrelsen, fallback …).
 

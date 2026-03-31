@@ -48,6 +48,7 @@ try:
     import rasterio
     from rasterio.features import rasterize
     from rasterio.transform import from_bounds
+    from shapely.geometry import box
 except ImportError as e:
     sys.exit(f"[FEL] Saknar paket: {e}\n  Kor: pip install -r requirements.txt")
 
@@ -366,6 +367,52 @@ def _protected_site_enrich_properties(props: dict) -> None:
     props["nvr_protection_class"] = str(cl) if cl is not None else None
 
 
+def _debug_print_protected_sites_gpkg(gdf: gpd.GeoDataFrame, tag: str = "") -> None:
+    """
+    Kontrollerar att GPKG innehåller ytor och om de skär strikt AOI-bbox (utan WFS-marginal).
+    """
+    lbl = f" {tag}" if tag else ""
+    pre = f"  [debug]{lbl}"
+    n = len(gdf)
+    if n == 0:
+        print(f"{pre} 0 rader i lagret — GPKG är tomt.")
+        return
+    valid = gdf[gdf.geometry.notna() & ~gdf.geometry.is_empty]
+    nv = len(valid)
+    if nv == 0:
+        print(f"{pre} {n} rader men alla geometrier saknas/tomma.")
+        return
+    if nv < n:
+        print(f"{pre} {n - nv} rader med tom geometri (använder {nv} giltiga).")
+    b = valid.total_bounds
+    crs_s = valid.crs.to_string() if valid.crs else "?"
+    print(
+        f"{pre} {nv} ytor | total_bounds ({crs_s}): "
+        f"{b[0]:.1f}, {b[1]:.1f} .. {b[2]:.1f}, {b[3]:.1f}"
+    )
+    aoi_poly = box(
+        AOI_BBOX["min_lon"],
+        AOI_BBOX["min_lat"],
+        AOI_BBOX["max_lon"],
+        AOI_BBOX["max_lat"],
+    )
+    aoi_gdf = gpd.GeoDataFrame(geometry=[aoi_poly], crs="EPSG:4326")
+    try:
+        aoi_in_data_crs = aoi_gdf.to_crs(valid.crs)
+    except Exception as ex:
+        print(f"{pre} kunde inte projicera AOI mot data-CRS: {ex}")
+        return
+    aoi_geom = aoi_in_data_crs.geometry.iloc[0]
+    hits = valid.geometry.intersects(aoi_geom)
+    n_hit = int(hits.sum())
+    print(f"{pre} skär strikt AOI-bbox (config, utan WFS-marginal): {n_hit} / {nv}")
+    if n_hit == 0:
+        print(
+            f"{pre} [varning] Inga ytor skär kärn-AOI — öka --protected-expand-deg, "
+            "kolla AOI_BBOX, eller förvänta 0 om området saknar formellt skydd."
+        )
+
+
 def download_protected_sites(
     *,
     expand_deg: float = 0.05,
@@ -385,6 +432,11 @@ def download_protected_sites(
 
     if gpkg.exists() and not overwrite:
         print(f"  [skip] {gpkg.name} finns redan (anvand --protected-sites-overwrite)")
+        try:
+            existing = gpd.read_file(gpkg, layer="protected_sites")
+            _debug_print_protected_sites_gpkg(existing, "befintlig")
+        except Exception as ex:
+            print(f"  [debug] Kunde inte läsa {gpkg.name}: {ex}")
         return
 
     lo = AOI_BBOX["min_lon"] - expand_deg
@@ -415,6 +467,11 @@ def download_protected_sites(
         features = data.get("features") or []
         n = len(features)
         print(f"  Hamtade {n} ytor (max {max_features})")
+        if n == 0:
+            print(
+                "  [varning] WFS returnerade inga polygoner i bbox — "
+                "GPKG blir tomt. Kolla bbox, marginal och att tjänsten svarar."
+            )
         if n >= max_features:
             print(
                 "  [varning] Träffar maxFeatures-gransen -- vid behov: "
@@ -445,6 +502,7 @@ def download_protected_sites(
 
         gdf.to_file(gpkg, driver="GPKG", layer="protected_sites")
         print(f"  [ok]   {gpkg}")
+        _debug_print_protected_sites_gpkg(gdf, "efter nedladdning")
 
         crs_note = f"EPSG:{EPSG_SWEREF}" if to_sweref else "EPSG:4258"
         meta.write_text(

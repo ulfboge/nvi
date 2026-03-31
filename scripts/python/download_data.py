@@ -356,15 +356,29 @@ def _protected_site_enrich_properties(props: dict) -> None:
         props["nvr_site_name"] = None
     sd = props.get("siteDesignation")
     try:
-        des = sd["DesignationType"]["designation"]
+        dt = sd["DesignationType"]
+        des = dt["designation"]
         if isinstance(des, dict):
             props["nvr_designation"] = des.get("@href") or des.get("href")
         else:
             props["nvr_designation"] = str(des) if des is not None else None
+        scheme = dt.get("designationScheme")
+        if isinstance(scheme, dict):
+            href = scheme.get("@href") or scheme.get("href")
+            if href is not None:
+                props["nvr_designation_scheme"] = str(href)
     except (TypeError, KeyError):
         props["nvr_designation"] = None
+    lfd = props.get("legalFoundationDocument")
+    if isinstance(lfd, dict):
+        cit = lfd.get("CI_Citation")
+        if isinstance(cit, dict) and cit.get("title") is not None:
+            props["nvr_legal_document_ref"] = str(cit["title"])
     cl = props.get("siteProtectionClassification")
     props["nvr_protection_class"] = str(cl) if cl is not None else None
+    ldate = props.get("legalFoundationDate")
+    if ldate is not None:
+        props["nvr_legal_foundation_date"] = str(ldate)
 
 
 def _debug_print_protected_sites_gpkg(gdf: gpd.GeoDataFrame, tag: str = "") -> None:
@@ -488,14 +502,21 @@ def download_protected_sites(
         else:
             gdf = gpd.GeoDataFrame.from_features(features, crs="EPSG:4258")
 
-        # Ta bort råa INSPIRE-kolumner med nästlade Python-dict-strängar.
-        # Läsbara värden finns redan i nvr_*-kolumnerna.
+        # Ta bort råa INSPIRE-kolumner (dict/JSON-blobs i CSV) — värden finns i nvr_*.
         _inspire_raw_cols = [
-            "inspireID", "siteDesignation", "siteName", "legalFoundationDocument",
+            "inspireID",
+            "siteDesignation",
+            "siteName",
+            "legalFoundationDocument",
+            "siteProtectionClassification",
+            "legalFoundationDate",
         ]
         cols_to_drop = [c for c in _inspire_raw_cols if c in gdf.columns]
         if cols_to_drop:
             gdf = gdf.drop(columns=cols_to_drop)
+        qgis_junk = [c for c in gdf.columns if str(c).startswith("@")]
+        if qgis_junk:
+            gdf = gdf.drop(columns=qgis_junk)
 
         if to_sweref and len(gdf) > 0:
             gdf = gdf.to_crs(epsg=EPSG_SWEREF)

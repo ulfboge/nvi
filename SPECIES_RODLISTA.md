@@ -42,9 +42,60 @@ python scripts/python/species_overlay_a.py \
   --rodlista examples/species/rodlista_minimal.csv
 ```
 
+**Tidsintervall** (t.ex. bara observationer senaste 20 åren):
+
+```bash
+python scripts/python/species_overlay_a.py \
+  --obs … --rodlista … \
+  --obs-date-col eventDate \
+  --obs-date-from 2005-01-01 \
+  --obs-date-to 2024-12-31
+```
+
+Kolumnnamn varierar (`observationDate`, `eventDate`, …). Datum parsas med `pandas.to_datetime` (ISO; tidszon normaliseras till UTC om möjligt).
+
 5. **QGIS:** lägg `hotspot_class.tif` / `nvi_score.tif` som botten, öppna GPKG + de två art-rasterna, jämför visuellt.
 
 **Leverans:** Kartlager + raster; dokumentera datakälla, datum och rödlisteversion i t.ex. `data/raw/arter/rodlista/rodlista_version.txt`. `compute_indices.py` ändras inte.
+
+---
+
+## 1a. Tid: historiska fynd vs egna fältfynd
+
+| Typ | När i kedjan | Roll |
+|-----|----------------|------|
+| **Öppna historiska observationer** (Artportalen, GBIF, äldre inventeringar) | **Före** eller **parallellt** med fält | Ger **kontext**: var arter redan är kända; kan överlagras på hotspot/NVI för **prioritering** och berättelse på t.ex. portfolio-sidan — utan att påstå att de “tränade” modellen. |
+| **Egna fynd från riktad NVI i fält** | **Efter** att du följt modellen till plats | Det är **utfall / validering**: bekräftar, falsifierar eller nyanserar modellen. Det är **inte** samma steg som producerar `nvi_score` från geodata. |
+
+Att lägga in **riktiga egna fältfynd** på en **publik showcase** är ofta meningsfullt först när du kan formulera **“modell → fält → resultat”** och när **integritet/skyddsarter** tillåter visning (aggregat eller grov plats).
+
+---
+
+## 1b. Showcase-karta på hemsidan (observationer ovanpå NVI)
+
+**Ja, det går** – vanligast så här:
+
+1. Kör `species_overlay_a.py` med lämpligt **tidsfilter** och ev. buffer.
+2. I **QGIS**: lägg hotspot/NVI som bakgrund, överst punktlagret från GPKG (eller symbolisera `*_species_threat_obs_count.tif` som halvgenomskinlig).
+3. Exportera en **PNG** (eller uppdatera `generate_showcase.py` senare om du vill automatisera).
+4. Byt/duplicera bild i `docs/assets/` och uppdatera `index.html` med **tydlig bildtext**: t.ex. *“Kända fynd 2005–2024 (källa: …) över NVI-prioritering — används som kontext, ingår inte i viktningen av indexen.”*
+
+**Viktigt:** Lägg **inte** ut känsliga exakta lokaler för skyddsvärda arter utan att följa källans regler.
+
+---
+
+## 1c. “Post-fält-NVI” som eget steg i processkedjan
+
+**Ja, logiskt** – men som **utvärderings- och rapporteringssteg**, inte som en fjärde ingång till samma `compute_indices.py`-loop som NMD/lidar/avverkning.
+
+Föreslagen berättelse i kedjan:
+
+1. Geodatabaserad screening → hotspot/NVI-raster  
+2. Stratifierat fält → **inventering**  
+3. **Post-fält:** jämför fynd med modell (överensstämmelse, luckor, falska positiva), uppdatera objekt/poäng, ev. ny version av rapport eller figur  
+4. (Valfritt) ny körning om du **ändrar AOI/regler** – inte för att “mata in” punktfynd tillbaka i samma viktade raster automatiskt utan tydlig metodbeskrivning
+
+Det motsvarar ett **sjunde steg** i presentationen (“Utvärdering mot fält”) snarare än ett nytt skript i den **reproducerbara för-screening-pipelinen**. Fas **C** i det här dokumentet (objektnivå) är nära det steget.
 
 ---
 

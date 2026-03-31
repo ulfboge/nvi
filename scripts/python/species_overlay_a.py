@@ -132,6 +132,37 @@ def load_rodlista(
     return df
 
 
+def filter_by_observation_date(
+    gdf: gpd.GeoDataFrame,
+    date_col: str | None,
+    date_from: str | None,
+    date_to: str | None,
+) -> gpd.GeoDataFrame:
+    """Filtrerar på tidsintervall om kolumn + minst ett datum anges."""
+    if not date_col:
+        if date_from or date_to:
+            sys.exit("Ange --obs-date-col om du använder --obs-date-from / --obs-date-to.")
+        return gdf
+    if date_col not in gdf.columns:
+        sys.exit(f"Observationer saknar datumkolumn '{date_col}'. Har: {list(gdf.columns)}")
+    if not date_from and not date_to:
+        return gdf
+
+    ts = pd.to_datetime(gdf[date_col], errors="coerce", utc=True)
+    mask = ts.notna()
+    if date_from:
+        t0 = pd.Timestamp(date_from, tz="UTC")
+        mask &= ts >= t0
+    if date_to:
+        t_end = pd.Timestamp(date_to, tz="UTC") + pd.Timedelta(days=1)
+        mask &= ts < t_end
+    out = gdf.loc[mask].copy()
+    if out.empty:
+        sys.exit("Inga observationer kvar efter tidsfilter — vidga intervall eller kolla kolumnformat.")
+    print(f"     Tidsfilter ({date_col}): {len(out)} av {len(gdf)} observationer")
+    return out
+
+
 def load_observations(
     path: Path,
     lon_col: str | None,
@@ -282,6 +313,21 @@ def main() -> None:
         help="Minsta hotnivå i hot-raster (2=VU, 3=EN, 4=CR)",
     )
     ap.add_argument("--no-raster", action="store_true", help="Skippa GeoTIFF (bara GPKG)")
+    ap.add_argument(
+        "--obs-date-col",
+        default=None,
+        help="Datumkolumn (t.ex. eventDate, observationDate) — ISO-liknande strängar",
+    )
+    ap.add_argument(
+        "--obs-date-from",
+        default=None,
+        help="Inklusivt startdatum YYYY-MM-DD (UTC/normaliserat)",
+    )
+    ap.add_argument(
+        "--obs-date-to",
+        default=None,
+        help="Inklusivt slutdatum YYYY-MM-DD",
+    )
     args = ap.parse_args()
 
     if not args.obs.exists():
@@ -304,6 +350,9 @@ def main() -> None:
         args.obs_layer,
     )
     gdf = gdf[gdf.geometry.notna() & ~gdf.geometry.is_empty].copy()
+    gdf = filter_by_observation_date(
+        gdf, args.obs_date_col, args.obs_date_from, args.obs_date_to
+    )
 
     # Till SWEREF
     gdf_tm = gdf.to_crs(epsg=EPSG_SWEREF)

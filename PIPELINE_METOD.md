@@ -167,6 +167,8 @@ generate_showcase.py  →  docs/assets/*.png
 - **Ingen formell NVI-klass 1–4** enligt handbok – utdata är **tre interna prioritetsklasser** tänkta som stöd för sampling (kan i ett senare steg översättas till er egen klassning).
 - **Tolkning av index** är modellbaserad: resultat beror på datakvalitet, upplösning och fallback-val. Percentiltrösklar (**p33/p67**) är **relativa inom AOI**, inte absoluta ekologiska gränser.
 
+**Efter fält:** att jämföra modellen med **fältfynd** (och ev. historiska observationslager med tidsfilter) är ett **separat utvärderingssteg** — se avsnitt 1a–1c i [`SPECIES_RODLISTA.md`](SPECIES_RODLISTA.md). Det ingår normalt **inte** som input till `compute_indices.py` utan tydlig separat metodbeskrivning.
+
 ---
 
 ## 9. Snabb referens: kommandon

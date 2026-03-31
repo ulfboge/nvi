@@ -340,6 +340,114 @@ def _stac_search_all(headers: dict) -> list:
 
 NV_PROTECTED_WFS = "https://geodata.naturvardsverket.se/inspire/ps/wfs"
 
+# INSPIRE / Natura 2000 / IUCN — tekniska kod-suffix → kort svensk förklaring (attributtabell).
+_PROTECTED_SITE_DESIGNATION_SV: dict[str, str] = {
+    "siteOfCommunityImportance": "Natura 2000 – livsmiljö (SCI, samhällsviktig)",
+    "specialAreaOfConservation": "Natura 2000 – särskilt bevarandeområde (SAC)",
+    "specialProtectionArea": "Natura 2000 – särskilt skyddsområde för fågel (SPA)",
+    "nationalPark": "Nationalpark",
+    "natureReserve": "Naturreservat",
+    "protectedLandscapeSeascape": "Skyddat landskap / havsområde",
+    "wildernessArea": "Vildmarksområde",
+    "strictNatureReserve": "Strikt naturreservat (IUCN Ia)",
+    "habitatSpeciesManagementArea": "Livsmiljö- och arters förvaltningsområde (IUCN IV)",
+    "speciesManagementArea": "Arters förvaltningsområde",
+    "biotopeOrHabitatProtectionArea": "Biotop- eller livsmiljöskydd",
+    "birdSanctuary": "Fågelskyddsområde",
+    "protectedAreaWithSustainableUseOfNaturalResources": "Skyddat område med hållbart nyttjande (IUCN VI)",
+    "nationalNatureMonument": "Naturminne / geologiskt naturminne",
+    "managedNatureReserve": "Skött naturreservat",
+    "commonDesignation": "Skyddsform (generisk beteckning)",
+}
+_PROTECTED_SITE_SCHEME_SV: dict[str, str] = {
+    "natura2000": "EU Natura 2000",
+    "IUCN": "IUCN:s skyddskategorier",
+    "national": "Nationellt skyddsregister",
+    "regional": "Regionalt skyddsregister",
+    "local": "Kommunalt / lokalt skydd",
+}
+_PROTECTED_SITE_PROTECTION_SV: dict[str, str] = {
+    "natureConservation": "Skydd av natur och biologisk mångfald",
+    "culturalHeritage": "Skydd av kulturarv",
+    "landscapeProtection": "Landskapsskydd",
+    "coastalZoneManagement": "Kustzon / kustförvaltning",
+    "waterCatchmentProtection": "Vattenskyddsområde",
+    "floodRiskManagement": "Översvämningsrisk / vattenförvaltning",
+}
+
+
+def _inspire_code_tail(href_or_code: object) -> str:
+    """Sista delen av INSPIRE-@href eller redan kort kod."""
+    if href_or_code is None:
+        return ""
+    s = str(href_or_code).strip()
+    if not s:
+        return ""
+    if "#" in s:
+        s = s.rsplit("#", 1)[-1]
+    if "/" in s:
+        s = s.rstrip("/").rsplit("/", 1)[-1]
+    return s
+
+
+def _fallback_label(code: str) -> str:
+    """Om kod saknas i lexikon: gör CamelCase något läsbarare."""
+    if not code:
+        return ""
+    out = []
+    for ch in code:
+        if ch.isupper() and out and out[-1] != " ":
+            out.append(" ")
+        out.append(ch)
+    return "".join(out).strip()
+
+
+def _protected_site_add_readable_sv(props: dict) -> None:
+    """Fyller nvr_*_sv och nvr_beskrivning_kort utifrån redan extraherade kodfält."""
+    des_tail = _inspire_code_tail(props.get("nvr_designation"))
+    props["nvr_designation_sv"] = _PROTECTED_SITE_DESIGNATION_SV.get(
+        des_tail, _fallback_label(des_tail) or des_tail
+    )
+
+    scheme_tail = _inspire_code_tail(props.get("nvr_designation_scheme"))
+    raw_scheme = props.get("nvr_designation_scheme")
+    props["nvr_register_sv"] = _PROTECTED_SITE_SCHEME_SV.get(
+        scheme_tail,
+        scheme_tail or (str(raw_scheme) if raw_scheme else "") or "",
+    )
+
+    pclass = props.get("nvr_protection_class")
+    pkey = str(pclass) if pclass is not None else ""
+    props["nvr_skyddsyfte_sv"] = _PROTECTED_SITE_PROTECTION_SV.get(
+        pkey, pkey or ""
+    )
+
+    ldf = props.get("nvr_legal_foundation_date")
+    if ldf:
+        s = str(ldf)
+        props["nvr_handlingsdatum"] = s[:10] if len(s) >= 10 and s[4] == "-" else s
+
+    ref = props.get("nvr_legal_document_ref")
+    if ref:
+        rs = str(ref).strip()
+        if rs.lower().startswith("http"):
+            props["nvr_handling_beskrivning"] = (
+                "Länk till beslut/handling hos Naturvårdsverket (öppna URL i kolumnen nvr_legal_document_ref)"
+            )
+        else:
+            props["nvr_handling_beskrivning"] = rs[:200] + ("…" if len(rs) > 200 else "")
+
+    namn = props.get("nvr_site_name") or "Namn saknas i data"
+    reg = props.get("nvr_register_sv") or ""
+    skyddstyp = props.get("nvr_designation_sv") or ""
+    parts = [namn, skyddstyp]
+    if reg:
+        parts.append(f"Register: {reg}")
+    datum = props.get("nvr_handlingsdatum")
+    if datum:
+        parts.append(f"Besluts-/handlingsdatum: {datum}")
+    props["nvr_beskrivning_kort"] = " — ".join(p for p in parts if p)
+
 
 def _protected_site_enrich_properties(props: dict) -> None:
     """Lägger till läsbara fält bredvid INSPIRE-nästlade JSON-strukturer."""
@@ -379,6 +487,8 @@ def _protected_site_enrich_properties(props: dict) -> None:
     ldate = props.get("legalFoundationDate")
     if ldate is not None:
         props["nvr_legal_foundation_date"] = str(ldate)
+
+    _protected_site_add_readable_sv(props)
 
 
 def _debug_print_protected_sites_gpkg(gdf: gpd.GeoDataFrame, tag: str = "") -> None:
@@ -517,6 +627,28 @@ def download_protected_sites(
         qgis_junk = [c for c in gdf.columns if str(c).startswith("@")]
         if qgis_junk:
             gdf = gdf.drop(columns=qgis_junk)
+
+        # Människovänliga kolumner först (QGIS / CSV).
+        _attr_order = [
+            "nvr_beskrivning_kort",
+            "nvr_site_name",
+            "nvr_designation_sv",
+            "nvr_register_sv",
+            "nvr_skyddsyfte_sv",
+            "nvr_handlingsdatum",
+            "nvr_handling_beskrivning",
+            "nvr_designation",
+            "nvr_designation_scheme",
+            "nvr_protection_class",
+            "nvr_legal_foundation_date",
+            "nvr_legal_document_ref",
+            "nvr_inspire_local_id",
+        ]
+        if len(gdf.columns) and any(c in gdf.columns for c in _attr_order):
+            geo_nm = gdf.geometry.name
+            head = [c for c in _attr_order if c in gdf.columns]
+            tail = [c for c in gdf.columns if c not in head and c != geo_nm]
+            gdf = gdf[head + tail]
 
         if to_sweref and len(gdf) > 0:
             gdf = gdf.to_crs(epsg=EPSG_SWEREF)

@@ -220,3 +220,9 @@ I `compute_indices.py` används **fördefinierade filnamnsmönster** mot NMD 202
 Officiell API-beskrivning: [Lantmäteriet STAC höjd API](https://api.lantmateriet.se/stac-hojd/v1/api.html).
 
 **OBS:** Upplösning i koden/kommentarer anges ofta som **2 m** (GSD-höjdmodell); showcase-text kan säga **1 m** – kontrollera alltid **faktisk produktmetadata** för de brickor du laddar ner.
+
+---
+
+## Planerad utökning: artdata och Rödlistan
+
+För en **stegvis roadmap** (överlagring → ev. delindex → objektnivå), mappförslag `data/raw/arter/`, datakällor och versionshantering av Rödlistan, se **[`SPECIES_RODLISTA.md`](SPECIES_RODLISTA.md)** i repots rot.

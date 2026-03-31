@@ -8,7 +8,7 @@ Geodata-driven Naturvärdesinventering (NVI): a reproducible pipeline that uses 
 
 A static GitHub Pages site (`docs/index.html`) showcases the **primary** data story (NMD, Lantmäteriet, Skogsstyrelsen). The Python code can still use **optional** fallbacks (GEE exports, Hansen, Copernicus DEM) when those folders are populated—see below.
 
-**Metod för människor (svenska):** se [`PIPELINE_METOD.md`](PIPELINE_METOD.md) i repots rot — steg-för-steg vad varje skript gör, vilka filer som skapas, och en bilaga om NMD-filnamn, GEE och Lantmäteriets STAC.
+**Metod för människor (svenska):** se [`PIPELINE_METOD.md`](PIPELINE_METOD.md) i repots rot — steg-för-steg vad varje skript gör, vilka filer som skapas, och en bilaga om NMD-filnamn, GEE och Lantmäteriets STAC. Plan för **artdata / Rödlistan** (ej implementerat): [`SPECIES_RODLISTA.md`](SPECIES_RODLISTA.md).
 
 ## Running the pipeline
 

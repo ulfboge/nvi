@@ -431,6 +431,15 @@ def download_protected_sites(
         else:
             gdf = gpd.GeoDataFrame.from_features(features, crs="EPSG:4258")
 
+        # Ta bort råa INSPIRE-kolumner med nästlade Python-dict-strängar.
+        # Läsbara värden finns redan i nvr_*-kolumnerna.
+        _inspire_raw_cols = [
+            "inspireID", "siteDesignation", "siteName", "legalFoundationDocument",
+        ]
+        cols_to_drop = [c for c in _inspire_raw_cols if c in gdf.columns]
+        if cols_to_drop:
+            gdf = gdf.drop(columns=cols_to_drop)
+
         if to_sweref and len(gdf) > 0:
             gdf = gdf.to_crs(epsg=EPSG_SWEREF)
 

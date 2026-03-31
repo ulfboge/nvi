@@ -426,8 +426,8 @@ def make_hotspot_protected_context_figure() -> None:
     gdf.plot(
         ax=ax,
         facecolor=(0, 0, 0, 0),
-        edgecolor="#f4d35e",
-        linewidth=1.35,
+        edgecolor="#ffffff",
+        linewidth=1.8,
         zorder=5,
     )
     ax.set_xlim(left, right)
@@ -450,7 +450,7 @@ def make_hotspot_protected_context_figure() -> None:
         mpatches.Patch(color="#4575b4", label="Klass 1 – Låg"),
         mpatches.Patch(
             facecolor="none",
-            edgecolor="#f4d35e",
+            edgecolor="#ffffff",
             linewidth=2,
             label="Formellt skydd (WFS ps:ProtectedSite)",
         ),

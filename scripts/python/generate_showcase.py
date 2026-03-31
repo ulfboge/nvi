@@ -10,7 +10,10 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import matplotlib.patches as mpatches
 import matplotlib.gridspec as gridspec
+import matplotlib.patheffects as pe
 from pathlib import Path
+
+from pyproj import Transformer
 
 sys.path.insert(0, str(Path(__file__).parent))
 from config import AOI_NAME, PROC_DIR, RASTERS_DIR
@@ -44,6 +47,9 @@ def load(suffix: str) -> np.ndarray:
     return arr
 
 
+_WGS84_TO_WEBM = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
+
+
 def _add_overview_inset(ax_parent, tif_path: Path) -> None:
     """AOI-outline på ljus webbkarta (CartoDB Positron, OSM-data). Kräver nätverk."""
     if not tif_path.exists():
@@ -58,15 +64,35 @@ def _add_overview_inset(ax_parent, tif_path: Path) -> None:
         b = src.bounds
         crs = src.crs
 
+    # AOI i Web Mercator (röd ram)
     left, bottom, right, top = transform_bounds(
         crs, "EPSG:3857", b.left, b.bottom, b.right, b.top
     )
     w, h = right - left, top - bottom
-    pad = max(w, h) * 0.2
+
+    # Expanderat utsnitt i WGS84 så Uppsala–Enköping–Sala m.m. ryms (tydligare läge)
+    lon_w, lat_s, lon_e, lat_n = transform_bounds(
+        crs, "EPSG:4326", b.left, b.bottom, b.right, b.top
+    )
+    clon = (lon_w + lon_e) / 2.0
+    clat = (lat_s + lat_n) / 2.0
+    half_lon_aoi = (lon_e - lon_w) / 2.0
+    half_lat_aoi = (lat_n - lat_s) / 2.0
+    half_lon = max(half_lon_aoi * 7.0, 0.62)
+    half_lat = max(half_lat_aoi * 7.0, 0.48)
+    exp_w = clon - half_lon
+    exp_e = clon + half_lon
+    exp_s = clat - half_lat
+    exp_n = clat + half_lat
+
+    vx0, vy0 = _WGS84_TO_WEBM.transform(exp_w, exp_s)
+    vx1, vy1 = _WGS84_TO_WEBM.transform(exp_e, exp_n)
+    xlim = (min(vx0, vx1), max(vx0, vx1))
+    ylim = (min(vy0, vy1), max(vy0, vy1))
 
     ax_in = ax_parent.inset_axes([0.02, 0.56, 0.34, 0.40])
-    ax_in.set_xlim(left - pad, right + pad)
-    ax_in.set_ylim(bottom - pad, top + pad)
+    ax_in.set_xlim(xlim[0], xlim[1])
+    ax_in.set_ylim(ylim[0], ylim[1])
     ax_in.set_aspect("equal", adjustable="box")
 
     try:
@@ -89,9 +115,44 @@ def _add_overview_inset(ax_parent, tif_path: Path) -> None:
             fill=False,
             edgecolor="#c1121f",
             linewidth=2.4,
-            zorder=10,
+            zorder=15,
         )
     )
+
+    # Orter i Uppland / Mälardalen (WGS84) – ungefärliga centrum
+    places = [
+        ("Uppsala", 17.6389, 59.8586),
+        ("Enköping", 17.0778, 59.6353),
+        ("Sala", 16.6066, 59.9201),
+        ("Örsundsbro", 17.2990, 59.7300),
+        ("Knutby", 18.1680, 59.9180),
+        ("Morgongåva", 17.1390, 59.8720),
+    ]
+    xl0, xl1 = ax_in.get_xlim()
+    yl0, yl1 = ax_in.get_ylim()
+    xspan = xl1 - xl0
+    yspan = yl1 - yl0
+    for name, plon, plat in places:
+        px, py = _WGS84_TO_WEBM.transform(plon, plat)
+        if not (xl0 - 0.02 * xspan <= px <= xl1 + 0.02 * xspan and
+                yl0 - 0.02 * yspan <= py <= yl1 + 0.02 * yspan):
+            continue
+        txt = ax_in.text(
+            px,
+            py,
+            name,
+            fontsize=7.2,
+            fontweight="bold",
+            color="#1b4332",
+            ha="center",
+            va="center",
+            zorder=12,
+            clip_on=True,
+        )
+        txt.set_path_effects(
+            [pe.withStroke(linewidth=2.5, foreground="white", alpha=0.95)]
+        )
+
     ax_in.set_xticks([])
     ax_in.set_yticks([])
     for s in ax_in.spines.values():
@@ -100,7 +161,7 @@ def _add_overview_inset(ax_parent, tif_path: Path) -> None:
     ax_in.text(
         0.5,
         -0.12,
-        "Läge: Fiby urskog (AOI)",
+        "Läge: Fiby urskog (AOI) · Uppland",
         transform=ax_in.transAxes,
         ha="center",
         fontsize=8,

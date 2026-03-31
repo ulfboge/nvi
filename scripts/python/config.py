@@ -8,15 +8,27 @@ from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
-# ── Testområde ───────────────────────────────────────────────────────────────
-# Fiby urskog, Uppland, Sverige – välkänd gammelskog, bra testfall
-AOI_NAME = "fiby_urskog"
+# ── Aktivt AOI – byt kommentar för att växla område ─────────────────────────
+
+# Djupedal, Hisingen, Göteborg – NVI utförd av Länsstyrelsen Västra Götaland
+# (Rapport 2022:42, Svensk Naturförvaltning AB). Ekdominerad blandskog, ca 113 ha
+# inventerad yta. Klass 2: 43 ha, Klass 3: 56 ha. Bra valideringsfall.
+AOI_NAME = "djupedal_hisingen"
 AOI_BBOX = {
-    "min_lon": 17.02,
-    "max_lon": 17.12,
-    "min_lat": 59.85,
-    "max_lat": 59.92,
+    "min_lon": 11.890,
+    "max_lon": 11.925,
+    "min_lat": 57.773,
+    "max_lat": 57.797,
 }
+
+# Fiby urskog, Uppland – välkänd gammelskog, ursprungligt testfall
+# AOI_NAME = "fiby_urskog"
+# AOI_BBOX = {
+#     "min_lon": 17.02,
+#     "max_lon": 17.12,
+#     "min_lat": 59.85,
+#     "max_lat": 59.92,
+# }
 EPSG_WGS84  = 4326
 EPSG_SWEREF = 3006   # SWEREF99TM – svenska geodata använder detta
 EPSG_UTM33  = 32633  # UTM zon 33N – alternativ projicering

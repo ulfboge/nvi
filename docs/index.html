@@ -24,6 +24,10 @@
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
+    @media (prefers-reduced-motion: no-preference) {
+      html { scroll-behavior: smooth; }
+    }
+
     body {
       font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
       background: var(--bg);
@@ -44,7 +48,11 @@
       display: flex; align-items: center; justify-content: space-between;
       height: 56px;
     }
-    header .brand { font-weight: 700; font-size: 1rem; letter-spacing: .3px; }
+    header .brand {
+      font-weight: 700; font-size: 1rem; letter-spacing: .3px;
+      color: white; text-decoration: none; transition: opacity .15s;
+    }
+    header .brand:hover { opacity: 0.92; }
     header .brand span { color: var(--green-light); }
     header nav ul { list-style: none; display: flex; gap: 1.8rem; }
     header nav a {
@@ -54,6 +62,11 @@
     header nav a:hover { color: white; }
 
     /* ── Hero ── */
+    #top,
+    section[id] {
+      scroll-margin-top: 56px;
+    }
+
     .hero {
       background: linear-gradient(135deg, var(--green-dark) 0%, var(--green-mid) 60%, var(--accent) 100%);
       color: white;
@@ -302,8 +315,9 @@
 <!-- ── Header ── -->
 <header>
   <nav>
-    <span class="brand">Johan Karlsson &nbsp;·&nbsp; <span>EO-driven NVI</span></span>
+    <a href="#top" class="brand">Johan Karlsson &nbsp;·&nbsp; <span>EO-driven NVI</span></a>
     <ul>
+      <li><a href="#top">Hem</a></li>
       <li><a href="#metod">Metod</a></li>
       <li><a href="#karta">Karta</a></li>
       <li><a href="#data">Datakällor</a></li>
@@ -314,7 +328,7 @@
 </header>
 
 <!-- ── Hero ── -->
-<div class="hero">
+<div class="hero" id="top">
   <div class="tag">GIS &nbsp;·&nbsp; Fjärranalys &nbsp;·&nbsp; Naturvård</div>
   <h1>Fjärranalysdriven prioritering och <em>riktad NVI</em></h1>
   <p>En reproducerbar hybridmetod som bygger på svenska nationella öppna geodata för att prioritera och effektivisera naturvärdesinventering i fält.</p>

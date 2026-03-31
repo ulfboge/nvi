@@ -694,7 +694,8 @@ def download_protected_sites(
             geo_nm = gdf.geometry.name
             head = [c for c in _attr_order if c in gdf.columns]
             tail = [c for c in gdf.columns if c not in head and c != geo_nm]
-            gdf = gdf[head + tail]
+            # Geometrikolumn måste finnas kvar — annars blir gdf en vanlig DataFrame utan .to_crs().
+            gdf = gdf[head + tail + [geo_nm]]
 
         if to_sweref and len(gdf) > 0:
             gdf = gdf.to_crs(epsg=EPSG_SWEREF)

@@ -180,3 +180,43 @@ python scripts/python/generate_showcase.py
 ```
 
 Om något steg saknar data, läs terminalutskriften – den anger vilken **källa** som användes (SLU, NMD, Skogsstyrelsen, fallback …).
+
+---
+
+## Bilaga A – Vad betyder «adel» och «ekovradel» i koden?
+
+I `compute_indices.py` används **fördefinierade filnamnsmönster** mot NMD 2023 **Trädslag** (tilläggsskikt). Namnen kommer från hur **Naturvårdsverket** namnger GeoTIFF:er i nedladdningspaketet – de är alltså **produkt-/kartnamn**, inte generiska svenska ord.
+
+| Mönster i koden | Typisk innebörd i NMD-sammanhang |
+|-----------------|-----------------------------------|
+| **`*adel*`** | Skikt som beskriver **ädellöv** – träd som i svensk skogsekologi ofta räknas som «ädellöv» (t.ex. ek, bok, ask m.fl. beroende på hur lagret är uppdelat i just din produktversion). |
+| **`*bok*`** | **Bok** som eget täckningsskikt (om det finns som fil i din dataleverans). |
+| **`*ekovradel*`** | Sammansatt namn i linje med **«ek och övrig ädellöv»** – alltså täckning där **ek** och **övrig ädellöv** hanteras som ett gemensamt skikt i den här produkten. |
+
+**Exakt klassindelning och metadata** finns i Naturvårdsverkets dokumentation för **NMD2023 Trädslag** – använd den som sanning källa om du ska citera vetenskapligt. I pipelinen är syftet enkelt: **högre strukturindex** när pixeln har mer **ädellöv**/**ek**-relaterad täckning enligt dessa raster.
+
+---
+
+## Bilaga B – Hur hänger Google Earth Engine ihop med analysen?
+
+1. **`scripts/gee/01_nvi_screening.js`**  
+   Fristående skript som du klistrar in i **GEE Code Editor**. Det är **inte** en del av den vanliga Python-körningen. Det exporterar egna raster (t.ex. Sentinel-baserade) till Drive som du sedan kan lägga i projektet.
+
+2. **`data/raw/gee_exports/` och `compute_indices.py`**  
+   Om det finns minst en fil som matchar **`*Delindex*.tif`** används den **före NMD** i **strukturindex** (band **1** tolkas som NDVI-struktur, normaliserat).  
+   Om **Skogsstyrelsen** saknas kan samma stack användas för **kontinuitet**: om GeoTIFF har **minst 5 band** används band **4–5** (median- och std-NDVI) till en **stabilitetsproxy** (lägre tidsvariabilitet → högre kontinuitet).
+
+**Sammanfattning:** Python-pipelinen kör **inte** GEE. Den kan **läsa färdigexporterade** GeoTIFF från mappen `gee_exports` om du skapat dem (via GEE-skriptet eller annat).
+
+---
+
+## Bilaga C – Används Lantmäteriets STAC (samma katalog som STAC Browser)?
+
+**Ja, samma datamängd** som du bläddrar i [STAC Browser mot `api.lantmateriet.se/stac-hojd/v1`](https://radiantearth.github.io/stac-browser/#/external/api.lantmateriet.se/stac-hojd/v1/?.language=en) är den katalog som `download_data.py` anropar via **STAC Search API**:
+
+- I koden: `POST https://api.lantmateriet.se/stac-hojd/v1/search` med AOI som **bbox** (WGS84), sedan nedladdning av länkade **COG**-filer till `data/raw/lantmateriet/`.
+- **STAC Browser** är bara ett **webb-UI** mot samma API; `compute_indices.py` läser sedan lokala **`.tif`** i `LM_DIR` och bygger **TWI** (fuktindex).
+
+Officiell API-beskrivning: [Lantmäteriet STAC höjd API](https://api.lantmateriet.se/stac-hojd/v1/api.html).
+
+**OBS:** Upplösning i koden/kommentarer anges ofta som **2 m** (GSD-höjdmodell); showcase-text kan säga **1 m** – kontrollera alltid **faktisk produktmetadata** för de brickor du laddar ner.

@@ -38,6 +38,7 @@ from config import (
     SLU_DIR,
     PROTECTED_SITES_DIR,
     LANTMATERIET_API_KEY,
+    get_lantmateriet_token,
     EPSG_SWEREF,
 )
 
@@ -734,15 +735,21 @@ def download_protected_sites(
 def download_lantmateriet_dem() -> None:
     print("\n[Lantmateriet GSD-Hojddata (STAC)]")
 
-    if not LANTMATERIET_API_KEY:
+    try:
+        token = get_lantmateriet_token()
+    except Exception as e:
+        token = ""
+        print(f"  [VARNING] Kunde inte hämta token: {e}")
+
+    if not token:
         print(
             "  [INFO] API-nyckel saknas – hoppar over Lantmateriet-data.\n"
             "  Registrera gratis pa: https://opendata.lantmateriet.se/\n"
-            "  Satt sedan: export LANTMATERIET_API_KEY=din_nyckel"
+            "  Satt consumer_key + consumer_secret i .env"
         )
         return
 
-    headers = {"Authorization": f"Bearer {LANTMATERIET_API_KEY}"}
+    headers = {"Authorization": f"Bearer {token}"}
 
     print("  Soker STAC-items for AOI ...")
     try:

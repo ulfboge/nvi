@@ -74,6 +74,22 @@ def clip_and_read(tif_path: Path, crs_is_sweref: bool = True):
 
 def merge_and_clip(paths: list, crs_is_sweref: bool = True):
     """Sätter ihop brickor och klipper till AOI."""
+    # Filtrera bort tiles som inte överlappar AOI
+    aoi_box = box(*aoi_sweref()) if crs_is_sweref else box(
+        AOI_BBOX["min_lon"], AOI_BBOX["min_lat"],
+        AOI_BBOX["max_lon"], AOI_BBOX["max_lat"],
+    )
+    overlapping = []
+    for p in paths:
+        with rasterio.open(p) as src:
+            b = src.bounds
+            tile_box = box(b.left, b.bottom, b.right, b.top)
+            if aoi_box.intersects(tile_box):
+                overlapping.append(p)
+    if not overlapping:
+        raise ValueError("Input shapes do not overlap raster.")
+    paths = overlapping
+
     if len(paths) == 1:
         return clip_and_read(paths[0], crs_is_sweref)
     datasets = [rasterio.open(p) for p in paths]
@@ -273,7 +289,12 @@ def build_moisture_index(target_shape: tuple):
     lm_files = sorted(LM_DIR.glob("*.tif"))
     if lm_files:
         print("  Kalla: Lantmateriet GSD-Hojddata")
-        dem, _ = merge_and_clip(lm_files)
+        try:
+            dem, _ = merge_and_clip(lm_files)
+        except ValueError:
+            print("  [VARNING] LM-tiles overlappar inte AOI – hoppar till nasta kalla")
+            lm_files = []
+    if lm_files:
         dem[dem < -1000] = np.nan
         cell_m = 2.0  # 2m-modell
         twi = compute_twi(dem, cell_m=cell_m)

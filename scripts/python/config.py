@@ -87,8 +87,26 @@ WEIGHTS = {
 
 # ── Svenska datakällor – API-nycklar ─────────────────────────────────────────
 # Lantmäteriet: gratis konto på https://opendata.lantmateriet.se/
-# Sätt LANTMATERIET_API_KEY som miljövariabel eller i .env-fil
-LANTMATERIET_API_KEY = os.environ.get("LANTMATERIET_API_KEY", "")
+# Föredragen metod: consumer_key + consumer_secret i .env → automatisk token-hämtning
+# Fallback: statisk LANTMATERIET_API_KEY (JWT, löper ut)
+LANTMATERIET_API_KEY      = os.environ.get("LANTMATERIET_API_KEY", "")
+LANTMATERIET_CONSUMER_KEY    = os.environ.get("consumer_key", "")
+LANTMATERIET_CONSUMER_SECRET = os.environ.get("consumer_secret", "")
+
+def get_lantmateriet_token() -> str:
+    """Hämtar en färsk Bearer-token via OAuth2 client_credentials.
+    Faller tillbaka på statisk LANTMATERIET_API_KEY om consumer_key saknas."""
+    if LANTMATERIET_CONSUMER_KEY and LANTMATERIET_CONSUMER_SECRET:
+        import requests as _req
+        r = _req.post(
+            "https://api.lantmateriet.se/token",
+            data={"grant_type": "client_credentials"},
+            auth=(LANTMATERIET_CONSUMER_KEY, LANTMATERIET_CONSUMER_SECRET),
+            timeout=15,
+        )
+        r.raise_for_status()
+        return r.json()["access_token"]
+    return LANTMATERIET_API_KEY
 
 # ── NMD-klassomvandling (klass → bredare kategori) ───────────────────────────
 # NMD2023: 1=barrskog, 2=lövskog, 3=blandskog, 4=åkermark, 5=öppen mark,

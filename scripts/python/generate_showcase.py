@@ -461,8 +461,8 @@ def make_hotspot_protected_context_figure() -> None:
         color="#1b4332",
         pad=12,
     )
-    ax.set_xlabel(f"Östning (m) · {crs}", fontsize=9, color="#555")
-    ax.set_ylabel("Northing (m)", fontsize=9, color="#555")
+    ax.set_xlabel(f"Östkoordinat (m) · {crs}", fontsize=9, color="#555")
+    ax.set_ylabel("Nordkoordinat (m)", fontsize=9, color="#555")
     ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, p: f"{x:.0f}"))
     ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, p: f"{x:.0f}"))
     ax.xaxis.offsetText.set_visible(False)

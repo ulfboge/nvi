@@ -9,6 +9,7 @@ Beräknar NVI-delindex från svenska datakällor:
 Körordning:
   1. python scripts/python/download_data.py
   2. (Valfritt) GEE-export → data/raw/gee_exports/
+  2b. (Valfritt) LAZ → lidar_laz/ (t.ex. --forest-laz-confirm) sedan compute_lidar_chm.py
   3. python scripts/python/compute_indices.py
 """
 
@@ -227,6 +228,29 @@ def build_structure_index():
             oh, _ = clip_and_read(NMD_OBJHOJD, crs_is_sweref=True)
             oh = resample_to(oh.clip(0, None), structure.shape)
             structure += normalize(oh) * 0.10
+
+        # LiDAR (LAZ → compute_lidar_chm.py): CHM, vertikal spridning, dödvedsproxy
+        lidar_chm = PROC_DIR / f"{AOI_NAME}_lidar_chm_max.tif"
+        if lidar_chm.exists():
+            chm_r, _ = clip_and_read(lidar_chm, crs_is_sweref=True)
+            chm_r = np.where((chm_r > -9000) & np.isfinite(chm_r), chm_r, np.nan)
+            chm_r = resample_to(np.nan_to_num(chm_r, nan=0.0), structure.shape)
+            structure += normalize(chm_r) * 0.12
+            print("  + LiDAR CHM (max) bonus")
+        lidar_vc = PROC_DIR / f"{AOI_NAME}_lidar_vert_complexity.tif"
+        if lidar_vc.exists():
+            vc, _ = clip_and_read(lidar_vc, crs_is_sweref=True)
+            vc = np.where((vc > -9000) & np.isfinite(vc), vc, np.nan)
+            vc = resample_to(np.nan_to_num(vc, nan=0.0), structure.shape)
+            structure += normalize(vc) * 0.08
+            print("  + LiDAR vertikal komplexitet (P90-P10) bonus")
+        lidar_dw = PROC_DIR / f"{AOI_NAME}_lidar_deadwood_proxy.tif"
+        if lidar_dw.exists():
+            dw, _ = clip_and_read(lidar_dw, crs_is_sweref=True)
+            dw = np.where((dw > -9000) & np.isfinite(dw), dw, np.nan)
+            dw = resample_to(np.nan_to_num(dw, nan=0.0), structure.shape)
+            structure += normalize(dw) * 0.05
+            print("  + LiDAR dödvedsproxy (låga returer) bonus")
 
         # Nyckelbiotop-bonus: Skogsstyrelsens nyckelbiotoper indikerar höga naturvärden
         nb_raster = NYCKELBIOTOP_DIR / "nyckelbiotoper_raster_10m.tif"

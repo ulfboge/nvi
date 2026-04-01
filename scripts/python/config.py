@@ -60,7 +60,38 @@ NMD_BASSKIKT     = _NMD_ROOT / "NMD2023_basskikt_v2_1"        / "NMD2023bas_v2_1
 NMD_OBJHOJD      = _NMD_ROOT / "NMD2023_Tillaggsskikt_Objekthojd_objekttackning_v1_1" / "NMD2023_Objekt_hojd_intervall_5_till_45_v1_1.tif"
 NMD_TRADSLAG_DIR = _NMD_ROOT / "NMD2023_Tradslag_v1_0"
 SKOGSST_DIR      = RAW_DIR / "skogsstyrelsen" # Skogsstyrelsen avverkningar
-LM_DIR           = RAW_DIR / "lantmateriet"   # Lantmäteriet höjddata
+LM_DIR           = RAW_DIR / "lantmateriet"   # Lantmäteriet höjddata (DTM/DSM COG)
+# Punktmoln LAZ (Laserdata skog öppen data, ev. NH): samma arbetsmapp för compute_lidar_chm.py
+LM_LIDAR_LAZ_DIR = LM_DIR / "lidar_laz"
+LM_NH_LAZ_DIR    = LM_LIDAR_LAZ_DIR  # alias (tidigare nh_laz)
+# Öppen hämtplats för Laserdata Skog (CC0). Överstyr med LM_FOREST_LAZ_BASE_URL om Lantmäteriet ändrar värd.
+LM_FOREST_LAZ_BASE_URL = os.environ.get(
+    "LM_FOREST_LAZ_BASE_URL",
+    "https://download-opendata.lantmateriet.se",
+).rstrip("/")
+# Om HTTPS blockeras: samma data via anonym FTP (port 21), samma katalogstruktur.
+LM_FOREST_LAZ_FTP_HOST = os.environ.get(
+    "LM_FOREST_LAZ_FTP_HOST",
+    "download-opendata.lantmateriet.se",
+)
+LM_FOREST_LAZ_CONNECT_TIMEOUT = int(os.environ.get("LM_FOREST_LAZ_CONNECT_TIMEOUT", "120"))
+# Efter misslyckad HTTPS: forsok FTP (1/true). Satt LM_FOREST_LAZ_TRY_FTP=0 for att stanga.
+LM_FOREST_LAZ_TRY_FTP = os.environ.get("LM_FOREST_LAZ_TRY_FTP", "1").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
+# Satt till 1 om bara FTP fungerar pa ditt nat
+LM_FOREST_LAZ_FTP_FIRST = os.environ.get("LM_FOREST_LAZ_FTP_FIRST", "0").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
+# Produktionsstatus för skogslaser – vilka skanningsområden som är "på lager"
+LM_UTFALL_LASER_SKOG_URL = os.environ.get(
+    "LM_UTFALL_LASER_SKOG_URL",
+    "https://www.lantmateriet.se/External/geolex/bild_hojd/utfall/utfall_laserdata_skog.json",
+)
 SLU_DIR          = RAW_DIR / "slu"            # SLU Skogliga Grunddata
 S2_EXPORT_DIR    = RAW_DIR / "gee_exports"    # GEE-exporterade GeoTIFF:er
 # Naturvårdsverket – skyddad natur (INSPIRE Protected Sites, WFS)
@@ -73,7 +104,7 @@ NNK_DIR = NATURVARDSVERKET_DIR / "nnk"
 # Länsbokstav för NNK-nedladdning (O = Västra Götaland, C = Uppsala/Fiby etc.)
 NNK_LAN = "O"
 
-for d in [NMD_DIR, SKOGSST_DIR, LM_DIR, SLU_DIR, S2_EXPORT_DIR,
+for d in [NMD_DIR, SKOGSST_DIR, LM_DIR, LM_LIDAR_LAZ_DIR, SLU_DIR, S2_EXPORT_DIR,
           NATURVARDSVERKET_DIR, PROTECTED_SITES_DIR, NNK_DIR,
           PROC_DIR, FIGURES_DIR, RASTERS_DIR, SPECIES_OUTPUT_DIR,
           ARTER_OBS_DIR, ARTER_RODLISTA_DIR, ARTER_DERIVED_DIR]:
@@ -99,6 +130,12 @@ WEIGHTS = {
 LANTMATERIET_API_KEY      = os.environ.get("LANTMATERIET_API_KEY", "")
 LANTMATERIET_CONSUMER_KEY    = os.environ.get("consumer_key", "")
 LANTMATERIET_CONSUMER_SECRET = os.environ.get("consumer_secret", "")
+# Om NH-punktmoln exponeras som egna STAC-kollektioner: kommaseparerade id, t.ex. nh-64_3,nh-64_2
+LM_STAC_NH_COLLECTIONS = [
+    c.strip()
+    for c in os.environ.get("LM_STAC_NH_COLLECTIONS", "").split(",")
+    if c.strip()
+]
 
 def get_lantmateriet_token() -> str:
     """Hämtar en färsk Bearer-token via OAuth2 client_credentials.

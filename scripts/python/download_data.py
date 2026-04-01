@@ -8,9 +8,12 @@ Svenska datakällor för NVI-screening:
      INGEN autentisering
   3. SLU Skogliga Grunddata                 – biomassa + trädhöjd (kräver
      tillgång via https://www.slu.se/skogligagrunddata)
-  4. Lantmäteriet GSD-Höjddata (STAC)      – lidar-DEM 2m
+  4. Lantmäteriet GSD-Höjddata (STAC)      – lidar-DTM/COG (mhm-*) till lantmateriet/
      KRÄVER gratis nyckel: https://opendata.lantmateriet.se/
-     export LANTMATERIET_API_KEY=din_nyckel
+  4b. (Valfritt) Laserdata Skog LAZ        – oppen data (CC0), utfall.json + STAC-rutor
+     till lantmateriet/lidar_laz/  (~GB per 2,5 km-ruta, --forest-laz-confirm)
+  4c. (Valfritt) NH punktmoln LAZ         – STAC om .laz-assets finns; annars manuellt
+     i lidar_laz/  (--nh-laz-confirm)
   5. Naturvårdsverket skyddad natur (WFS)  – polygoner inom AOI + marginal, ingen nyckel
      INSPIRE ps:ProtectedSite — nationella zip-paket finns också på geodata.naturvardsverket.se
 
@@ -18,11 +21,14 @@ Kör:
   python scripts/python/download_data.py
   python scripts/python/download_data.py --nmd-confirm   # inkl NMD (2,7 GB)
   python scripts/python/download_data.py --protected-sites
+  python scripts/python/download_data.py --forest-laz-confirm   # Skogslaser LAZ (stort)
+  python scripts/python/download_data.py --nh-laz-confirm       # NH LAZ via STAC om mojligt
 """
 
 import sys
 import math
 import json
+import ftplib
 import argparse
 import urllib.parse
 from io import BytesIO
@@ -42,6 +48,14 @@ from config import (
     LANTMATERIET_API_KEY,
     get_lantmateriet_token,
     EPSG_SWEREF,
+    LM_LIDAR_LAZ_DIR,
+    LM_STAC_NH_COLLECTIONS,
+    LM_FOREST_LAZ_BASE_URL,
+    LM_FOREST_LAZ_FTP_HOST,
+    LM_FOREST_LAZ_CONNECT_TIMEOUT,
+    LM_FOREST_LAZ_TRY_FTP,
+    LM_FOREST_LAZ_FTP_FIRST,
+    LM_UTFALL_LASER_SKOG_URL,
 )
 
 try:
@@ -51,7 +65,7 @@ try:
     import rasterio
     from rasterio.features import rasterize
     from rasterio.transform import from_bounds
-    from shapely.geometry import box
+    from shapely.geometry import box, shape as shp_shape
 except ImportError as e:
     sys.exit(f"[FEL] Saknar paket: {e}\n  Kor: pip install -r requirements.txt")
 
@@ -68,13 +82,14 @@ def aoi_sweref():
 # ── Nedladdningshjälpare ──────────────────────────────────────────────────────
 
 def download_file(url: str, dest: Path, overwrite: bool = False,
-                  headers: dict = None, stream: bool = True) -> bool:
+                  headers: dict = None, stream: bool = True,
+                  timeout=300) -> bool:
     if dest.exists() and not overwrite:
         print(f"  [skip] {dest.name}")
         return True
     print(f"  >> {dest.name} ...")
     try:
-        resp = requests.get(url, headers=headers or {}, stream=stream, timeout=300)
+        resp = requests.get(url, headers=headers or {}, stream=stream, timeout=timeout)
         resp.raise_for_status()
         with open(dest, "wb") as f:
             for chunk in resp.iter_content(chunk_size=2 << 20):
@@ -488,28 +503,249 @@ def download_slu_grunddata() -> None:
 
 LM_STAC_URL = "https://api.lantmateriet.se/stac-hojd/v1/search"
 
-def _stac_search_all(headers: dict) -> list:
-    """Hämtar alla STAC-items för AOI via paginering."""
+
+def _stac_search_paginated(headers: dict = None, extra: dict = None) -> list:
+    """STAC POST /search med AOI-bbox och valfria filter (t.ex. collections)."""
+    hdr = {} if headers is None else headers
     payload = {
-        "bbox":  [AOI_BBOX["min_lon"], AOI_BBOX["min_lat"],
-                  AOI_BBOX["max_lon"], AOI_BBOX["max_lat"]],
+        "bbox": [
+            AOI_BBOX["min_lon"],
+            AOI_BBOX["min_lat"],
+            AOI_BBOX["max_lon"],
+            AOI_BBOX["max_lat"],
+        ],
         "limit": 100,
     }
+    if extra:
+        payload.update(extra)
     items = []
     url = LM_STAC_URL
     while url:
-        resp = requests.post(url, json=payload, headers=headers, timeout=30)
+        resp = requests.post(url, json=payload, headers=hdr, timeout=60)
         resp.raise_for_status()
         data = resp.json()
         items.extend(data.get("features", []))
-        # Följ next-länk om den finns
         next_link = next(
             (l["href"] for l in data.get("links", []) if l.get("rel") == "next"),
-            None
+            None,
         )
         url = next_link
-        payload = {}   # next-länk har redan parametrar inbakade
+        payload = {}
     return items
+
+
+def _stac_search_all(headers: dict) -> list:
+    """Alla STAC-items för AOI (samma som tidigare: endast bbox)."""
+    return _stac_search_paginated(headers, None)
+
+
+def _stac_item_laz_assets(item: dict):
+    """Returnerar (asset_key, href) för .laz-assets i ett STAC-item."""
+    out = []
+    for key, asset in (item.get("assets") or {}).items():
+        href = (asset or {}).get("href") or ""
+        if href.lower().endswith(".laz"):
+            out.append((key, href))
+    return out
+
+
+def _stac_tile_id_to_forest_laz_filename(tile_id: str) -> str:
+    """Indexruta som STAC-id (t.ex. 649_39_7550) -> Lantmäteriets LAZ-namn (64975_3950_25.laz)."""
+    parts = str(tile_id).strip().split("_")
+    if len(parts) != 3:
+        raise ValueError(f"Ovantat tile-id: {tile_id!r}")
+    a, b, c = parts
+    c = c.zfill(4)
+    return f"{a}{c[:2]}_{b}{c[2:4]}_25.laz"
+
+
+def _forest_laser_status_pa_lager(status: str) -> bool:
+    """True om utfall sager att laser finns att hamta (Klass 1 eller 3)."""
+    if not status:
+        return False
+    s = status.lower()
+    return "lager" in s and "klass" in s
+
+
+def _load_forest_laser_utfall_gdf():
+    """GeoJSON med skanningspolygoner i EPSG:3006 (endast 'pa lager')."""
+    r = requests.get(LM_UTFALL_LASER_SKOG_URL, timeout=180)
+    r.raise_for_status()
+    data = r.json()
+    ready = [
+        f
+        for f in data.get("features", [])
+        if _forest_laser_status_pa_lager((f.get("properties") or {}).get("status", ""))
+    ]
+    if not ready:
+        raise ValueError(
+            "Inga skanningsomraden med lagerstatus i utfall-GeoJSON (forvantat 'Pa lager (Klass 1/3)')."
+        )
+    return gpd.GeoDataFrame.from_features(ready, crs="EPSG:3006")
+
+
+def _forest_laz_download_url(year: int, omradesnamn: str, laz_name: str) -> str:
+    """HTTPS under LM_FOREST_LAZ_BASE_URL (standard: opendata-download)."""
+    segs = ["Laserdata Skog", str(year), str(omradesnamn), laz_name]
+    path = "/".join(urllib.parse.quote(s, safe="") for s in segs)
+    return f"{LM_FOREST_LAZ_BASE_URL}/{path}"
+
+
+def _download_forest_laz_ftp(
+    year: int,
+    omradesnamn: str,
+    laz_name: str,
+    dest: Path,
+    *,
+    overwrite: bool = False,
+) -> bool:
+    """
+    Anonym FTP mot LM_FOREST_LAZ_FTP_HOST – samma relativa sokvagar som pa webben.
+    Lantmateriet: ftp://download-opendata.lantmateriet.se (ingen inloggning).
+    """
+    if dest.exists() and not overwrite:
+        print(f"  [skip] {dest.name}")
+        return True
+    print(f"  >> {dest.name} (FTP {LM_FOREST_LAZ_FTP_HOST}) ...")
+    try:
+        with ftplib.FTP() as ftp:
+            ftp.connect(LM_FOREST_LAZ_FTP_HOST, timeout=LM_FOREST_LAZ_CONNECT_TIMEOUT)
+            ftp.login()
+            ftp.set_pasv(True)
+            for segment in ("Laserdata Skog", str(year), str(omradesnamn)):
+                ftp.cwd(segment)
+            with open(dest, "wb") as out:
+                ftp.retrbinary(f"RETR {laz_name}", out.write, blocksize=2 << 20)
+    except Exception as e:
+        print(f"  [FEL]  {dest.name} (FTP): {e}")
+        if dest.exists():
+            dest.unlink()
+        return False
+    size_mb = dest.stat().st_size / 1_000_000
+    print(f"  [ok]   {dest.name}  ({size_mb:.0f} MB) [FTP]")
+    return True
+
+
+def download_lantmateriet_forest_laz(*, confirm: bool = False) -> None:
+    """
+    Laserdata Nedladdning, skog (CC0): LAZ per 2,5 km-ruta.
+
+    Rutor tas fran STAC mhm-* (samma index som hojdgrid-COG). Skanningsomrade/ar
+    matchas mot Lantmäteriets utfall_laserdata_skog.json. Nedladdning fran
+    LM_FOREST_LAZ_BASE_URL (standard opendata, utan API-nyckel).
+    Om HTTPS timeoutar (brandvagg): forsok FTP till LM_FOREST_LAZ_FTP_HOST eller satt
+    LM_FOREST_LAZ_FTP_FIRST=1 i .env.
+    """
+    print("\n[Lantmateriet Laserdata Skog (LAZ, oppen data)]")
+
+    if not confirm:
+        print(
+            "  Hoppar over (stora filer per ruta).\n"
+            "  Kor med --forest-laz-confirm for automatisk nedladdning for AOI.\n"
+            f"  Sparas under: {LM_LIDAR_LAZ_DIR}\n"
+            f"  HTTPS-bas: {LM_FOREST_LAZ_BASE_URL}\n"
+            f"  FTP-vard: {LM_FOREST_LAZ_FTP_HOST} (fallback om HTTPS misslyckas)\n"
+            "  .env: LM_FOREST_LAZ_CONNECT_TIMEOUT, LM_FOREST_LAZ_FTP_FIRST=1, LM_FOREST_LAZ_TRY_FTP=0"
+        )
+        return
+
+    try:
+        utfall = _load_forest_laser_utfall_gdf()
+        print(f"  Utfall: {len(utfall)} skanningsomraden 'pa lager'")
+    except Exception as e:
+        print(f"  [FEL] Kunde inte lasa utfall GeoJSON: {e}")
+        print(f"  URL: {LM_UTFALL_LASER_SKOG_URL}")
+        return
+
+    hdr = {}
+    try:
+        token = get_lantmateriet_token()
+        if token:
+            hdr["Authorization"] = f"Bearer {token}"
+    except Exception:
+        pass
+
+    try:
+        items = _stac_search_paginated(hdr, None)
+    except Exception as e:
+        print(f"  [FEL] STAC-sokning misslyckades: {e}")
+        return
+
+    mhm = []
+    seen = set()
+    for it in items:
+        coll = str(it.get("collection") or "")
+        if not coll.startswith("mhm-"):
+            continue
+        iid = it.get("id")
+        if not iid or iid in seen:
+            continue
+        seen.add(iid)
+        mhm.append(it)
+
+    print(f"  STAC mhm-rutor i bbox: {len(mhm)}")
+    if LM_FOREST_LAZ_FTP_FIRST:
+        print(f"  [info] LM_FOREST_LAZ_FTP_FIRST=1 – forsoker FTP fore HTTPS.")
+    elif LM_FOREST_LAZ_TRY_FTP:
+        print(
+            "  [info] Om HTTPS till opendata-timeoutar forsoker vi anonym FTP "
+            f"({LM_FOREST_LAZ_FTP_HOST}:21)."
+        )
+
+    ok = 0
+    conn_to = LM_FOREST_LAZ_CONNECT_TIMEOUT
+    for it in mhm:
+        iid = it["id"]
+        try:
+            laz_name = _stac_tile_id_to_forest_laz_filename(iid)
+        except ValueError:
+            print(f"  [skip] Kan inte mappa STAC-id till LAZ: {iid}")
+            continue
+
+        try:
+            foot = gpd.GeoDataFrame(
+                geometry=[shp_shape(it["geometry"])], crs="EPSG:4326"
+            ).to_crs(epsg=EPSG_SWEREF)
+            tile_poly = foot.geometry.iloc[0]
+        except Exception as ex:
+            print(f"  [skip] {iid}: geometri {ex}")
+            continue
+
+        hits = utfall[utfall.intersects(tile_poly)]
+        if hits.empty:
+            print(
+                f"  [skip] {iid} ({laz_name}): inget 'pa lager'-omrade skar STAC-rutan "
+                "(saknas skogslaser har / annat arskikt)"
+            )
+            continue
+
+        hits = hits.assign(_a=hits.geometry.area).sort_values("_a")
+        row = hits.iloc[0]
+
+        omr = str(row["omradesnamn"])
+        try:
+            year = 2000 + int(omr[:2])
+        except (ValueError, TypeError):
+            print(f"  [skip] {iid}: kan inte tolka ar ur omradesnamn {omr!r}")
+            continue
+
+        url = _forest_laz_download_url(year, omr, laz_name)
+        dest = LM_LIDAR_LAZ_DIR / f"skog_{laz_name}"
+        print(f"  ({omr}, {year}) {url[:72]}...")
+        got = False
+        if LM_FOREST_LAZ_FTP_FIRST:
+            got = _download_forest_laz_ftp(year, omr, laz_name, dest)
+            if not got:
+                got = download_file(url, dest, headers=None, timeout=(conn_to, 7200))
+        else:
+            got = download_file(url, dest, headers=None, timeout=(conn_to, 7200))
+            if not got and LM_FOREST_LAZ_TRY_FTP:
+                print("  [info] HTTPS misslyckades – forsoker FTP ...")
+                got = _download_forest_laz_ftp(year, omr, laz_name, dest)
+        if got:
+            ok += 1
+
+    print(f"  Klart: {ok} nya eller befintliga LAZ under {LM_LIDAR_LAZ_DIR.name}/")
 
 
 # ── 5. Naturvårdsverket – skyddad natur (INSPIRE Protected Sites, WFS) ───────
@@ -957,6 +1193,82 @@ def download_lantmateriet_dem() -> None:
         print("  Kontrollera API-nyckel:\n  https://api.lantmateriet.se/stac-hojd/v1/api.html")
 
 
+def download_lantmateriet_nh_laz(*, confirm: bool = False) -> None:
+    """
+    NH (Nationellt höjddata) punktmoln i LAZ via samma STAC Search som DTM.
+
+    I skrivande stund (2026) listar stac-hojd/v1/collections bara mhm-* (höjdgrid COG).
+    Om LAZ exponeras i STAC under andra kollektions-id: sätt LM_STAC_NH_COLLECTIONS i .env.
+    Annars: lägg .laz i data/raw/lantmateriet/lidar_laz/ och kör compute_lidar_chm.py.
+    """
+    print("\n[Lantmateriet NH – punktmoln (LAZ) via STAC]")
+
+    if not confirm:
+        print(
+            "  Hoppar over (stora filer, ofta flera GB per bricka).\n"
+            "  Kor med --nh-laz-confirm for STAC-nedladdning, eller kopiera LAZ manuellt till:\n"
+            f"  {LM_LIDAR_LAZ_DIR}"
+        )
+        return
+
+    try:
+        token = get_lantmateriet_token()
+    except Exception as e:
+        token = ""
+        print(f"  [VARNING] Kunde inte hämta token: {e}")
+
+    if not token:
+        print(
+            "  [INFO] API-nyckel saknas – kan inte söka STAC.\n"
+            "  Registrera pa https://opendata.lantmateriet.se/"
+        )
+        return
+
+    headers = {"Authorization": f"Bearer {token}"}
+    extra = {}
+    if LM_STAC_NH_COLLECTIONS:
+        extra["collections"] = LM_STAC_NH_COLLECTIONS
+        print(f"  STAC collections-filter: {LM_STAC_NH_COLLECTIONS}")
+    else:
+        print(
+            "  [INFO] LM_STAC_NH_COLLECTIONS ar tom – söker alla träffar i bbox "
+            "(kan ge 0 LAZ om katalogen bara har mhm-COG)."
+        )
+
+    try:
+        items = _stac_search_paginated(headers, extra if extra else None)
+        print(f"  Hittade {len(items)} STAC-items (alla typer)")
+
+        tasks = []
+        seen_dest = set()
+        for item in items:
+            iid = item.get("id", "item")
+            for asset_key, href in _stac_item_laz_assets(item):
+                safe_key = asset_key.replace("/", "_")
+                dest = LM_LIDAR_LAZ_DIR / f"nh_{iid}_{safe_key}.laz"
+                if dest.name in seen_dest:
+                    dest = LM_LIDAR_LAZ_DIR / f"nh_{iid}_{safe_key}_{len(seen_dest)}.laz"
+                seen_dest.add(dest.name)
+                tasks.append((href, dest))
+
+        if not tasks:
+            print(
+                "  Inga .laz-assets i STAC-svaret.\n"
+                "  – Kolla om NH har egna kollektioner och sätt LM_STAC_NH_COLLECTIONS.\n"
+                "  – Eller ladda ner LAZ via Lantmäteriets beställning/webb och lägg i lidar_laz/."
+            )
+            return
+
+        new_count = 0
+        for href, dest in tasks:
+            if download_file(href, dest, headers=headers, timeout=(60, 7200)):
+                new_count += 1
+        print(f"  {LM_LIDAR_LAZ_DIR.name}/  – {new_count} nedladdning(ar) klara (fanns redan = skip).")
+
+    except Exception as e:
+        print(f"  [FEL] {e}")
+
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
@@ -985,6 +1297,26 @@ def main():
         action="store_true",
         help="Skriv om befintlig protected_sites_<AOI>.gpkg",
     )
+    parser.add_argument(
+        "--forest-laz-confirm",
+        action="store_true",
+        help="Ladda Laserdata Skog (.laz) for AOI via utfall+STAC (stora filer, CC0)",
+    )
+    parser.add_argument(
+        "--forest-laz-only",
+        action="store_true",
+        help="Kor endast skogslaser-LAZ (kräver --forest-laz-confirm)",
+    )
+    parser.add_argument(
+        "--nh-laz-confirm",
+        action="store_true",
+        help="Ladda NH-punktmoln (.laz) via STAC om assets finns (stora filer)",
+    )
+    parser.add_argument(
+        "--nh-laz-only",
+        action="store_true",
+        help="Kor endast NH LAZ-nedladdning (kräver --nh-laz-confirm)",
+    )
     args = parser.parse_args()
 
     print("=" * 60)
@@ -999,12 +1331,24 @@ def main():
         print("\n[klar] Nedladdning avslutad.")
         return
 
+    if args.forest_laz_only:
+        download_lantmateriet_forest_laz(confirm=args.forest_laz_confirm)
+        print("\n[klar] Nedladdning avslutad.")
+        return
+
+    if args.nh_laz_only:
+        download_lantmateriet_nh_laz(confirm=args.nh_laz_confirm)
+        print("\n[klar] Nedladdning avslutad.")
+        return
+
     download_nmd(confirm=args.nmd_confirm)
     download_skogsstyrelsen()
     download_nyckelbiotoper()
     download_nnk()
     download_slu_grunddata()
     download_lantmateriet_dem()
+    download_lantmateriet_forest_laz(confirm=args.forest_laz_confirm)
+    download_lantmateriet_nh_laz(confirm=args.nh_laz_confirm)
     if args.protected_sites:
         download_protected_sites(
             expand_deg=args.protected_expand_deg,

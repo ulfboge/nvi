@@ -248,6 +248,62 @@ def _rasterize_disturbance(gdf: "gpd.GeoDataFrame",
     print(f"  [ok]   {out_path.name}  ({arr.sum()} storningspixlar av {arr.size})")
 
 
+# ── 3. Skogsstyrelsen nyckelbiotoper (ArcGIS REST) ───────────────────────────
+#
+# Nyckelbiotoper indikerar höga naturvärden (ekvivalent med NVI klass 1–2).
+# Används som bonuslager i strukturindex.
+# Samma API-host som avverkningar, layer 0 i Nyckelbiotoper-tjänsten.
+
+NYCKELBIOTOP_URL = (
+    "https://geodpags.skogsstyrelsen.se/arcgis/rest/services/"
+    "Geodataportal/GeodataportalVisaNyckelbiotop/MapServer/0/query"
+)
+
+
+def download_nyckelbiotoper() -> None:
+    print("\n[Skogsstyrelsen nyckelbiotoper]")
+
+    from config import NYCKELBIOTOP_DIR
+    gpkg   = NYCKELBIOTOP_DIR / "nyckelbiotoper_aoi.gpkg"
+    raster = NYCKELBIOTOP_DIR / "nyckelbiotoper_raster_10m.tif"
+
+    x_min, y_min, x_max, y_max = aoi_sweref()
+
+    params = {
+        "geometry":       f"{x_min:.0f},{y_min:.0f},{x_max:.0f},{y_max:.0f}",
+        "geometryType":   "esriGeometryEnvelope",
+        "spatialRel":     "esriSpatialRelIntersects",
+        "inSR":           str(EPSG_SWEREF),
+        "outSR":          str(EPSG_SWEREF),
+        "outFields":      "*",
+        "returnGeometry": "true",
+        "f":              "geojson",
+    }
+
+    try:
+        print(f"  Fragor REST-API ({NYCKELBIOTOP_URL[:60]}...)")
+        resp = requests.get(NYCKELBIOTOP_URL, params=params, timeout=60)
+        resp.raise_for_status()
+
+        features = resp.json().get("features", [])
+        print(f"  Hittade {len(features)} nyckelbiotoper")
+
+        if features:
+            gdf = gpd.GeoDataFrame.from_features(features, crs=f"EPSG:{EPSG_SWEREF}")
+        else:
+            gdf = gpd.GeoDataFrame(geometry=[], crs=f"EPSG:{EPSG_SWEREF}")
+
+        gdf.to_file(gpkg, driver="GPKG")
+        print(f"  [ok]   {gpkg.name}")
+
+        _rasterize_disturbance(gdf, x_min, y_min, x_max, y_max, raster)
+        # Byt namn på utskriften – _rasterize_disturbance skriver "störningspixlar"
+        # vilket är lite missvisande för nyckelbiotoper, men funktionen fungerar rätt.
+
+    except Exception as e:
+        print(f"  [FEL]  {e}")
+
+
 # ── 3. SLU Skogliga Grunddata ─────────────────────────────────────────────────
 #
 # Biomassa och trädhöjd – bästa strukturproxy för NVI.
@@ -822,6 +878,7 @@ def main():
 
     download_nmd(confirm=args.nmd_confirm)
     download_skogsstyrelsen()
+    download_nyckelbiotoper()
     download_slu_grunddata()
     download_lantmateriet_dem()
     if args.protected_sites:

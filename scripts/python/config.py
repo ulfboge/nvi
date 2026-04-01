@@ -16,10 +16,10 @@ load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 AOI_NAME  = "djupedal_hisingen"
 AOI_LABEL = "Djupedal, Hisingen, Göteborg"
 AOI_BBOX = {
-    "min_lon": 11.890,
-    "max_lon": 11.925,
-    "min_lat": 57.773,
-    "max_lat": 57.797,
+    "min_lon": 11.935,
+    "max_lon": 11.973,
+    "min_lat": 57.806,
+    "max_lat": 57.828,
 }
 
 # Fiby urskog, Uppland – välkänd gammelskog, ursprungligt testfall
@@ -66,6 +66,8 @@ S2_EXPORT_DIR    = RAW_DIR / "gee_exports"    # GEE-exporterade GeoTIFF:er
 # Naturvårdsverket – skyddad natur (INSPIRE Protected Sites, WFS)
 NATURVARDSVERKET_DIR = RAW_DIR / "naturvardsverket"
 PROTECTED_SITES_DIR  = NATURVARDSVERKET_DIR / "skyddad_natur"
+# Skogsstyrelsen – nyckelbiotoper (öppet API, samma källa som avverkningar)
+NYCKELBIOTOP_DIR = SKOGSST_DIR  # sparas i skogsstyrelsen/-mappen
 
 for d in [NMD_DIR, SKOGSST_DIR, LM_DIR, SLU_DIR, S2_EXPORT_DIR,
           NATURVARDSVERKET_DIR, PROTECTED_SITES_DIR,
@@ -110,8 +112,15 @@ def get_lantmateriet_token() -> str:
     return LANTMATERIET_API_KEY
 
 # ── NMD-klassomvandling (klass → bredare kategori) ───────────────────────────
-# NMD2023: 1=barrskog, 2=lövskog, 3=blandskog, 4=åkermark, 5=öppen mark,
-#          6=våtmark, 7=exploaterad mark, 8=vatten
-NMD_FOREST_CLASSES  = [1, 2, 3]      # Alla skogsklasser
-NMD_WETLAND_CLASSES = [6]             # Våtmark – viktig för fuktindex
-NMD_OPEN_CLASSES    = [4, 5]          # Jordbruk + öppen mark
+# NMD2023 basskikt v2.1 använder hierarkiska koder:
+#   1xx (100–199) = Produktiv skogsmark (barrskog 111–118, lövblandad 114–118, lövskog 121–128)
+#   2xx           = Jordbruksmark (åker 211–, betesmark 221–)
+#   3              = Blandskog (äldre enkel klass, kan förekomma vid kanteffekter)
+#   4xx/5xx       = Öppen mark, hyggen
+#   6xx           = Våtmark
+#   7xx           = Exploaterad mark
+#   8xx           = Vatten
+# Äldre enkel NMD: 1=barrskog, 2=lövskog, 3=blandskog — stöds som fallback
+NMD_FOREST_CLASSES  = list(range(100, 200)) + [1, 2, 3]   # 1xx + äldre enkla koder
+NMD_WETLAND_CLASSES = list(range(600, 700)) + [6]
+NMD_OPEN_CLASSES    = list(range(200, 600)) + [4, 5]

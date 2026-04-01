@@ -23,7 +23,8 @@ from config import (
     SKOGSST_DIR, LM_DIR, SLU_DIR, S2_EXPORT_DIR,
     PROC_DIR, WEIGHTS,
     NMD_FOREST_CLASSES, NMD_WETLAND_CLASSES,
-    HANSEN_DIR, WORLDCOVER_DIR, DEM_FALLBACK_DIR
+    HANSEN_DIR, WORLDCOVER_DIR, DEM_FALLBACK_DIR,
+    NYCKELBIOTOP_DIR,
 )
 
 try:
@@ -197,30 +198,43 @@ def build_structure_index():
         texture     = generic_filter(forest_mask, np.std, size=7)
         structure   = forest_mask * 0.5 + normalize(texture) * 0.2
 
-        # Trädslag: ädellöv och trivial löv ger biodiversitetsbonus
-        # Filer: adel, bok, ekovradel = högt värde  |  trivial = måttligt
+        # Trädslag: ädellöv och trivial löv ger bonus; gran ger malus
+        # Filer: adel, bok, ekovradel = högt värde  |  trivial = måttligt  |  gran = negativt
         if has_tradslag:
-            # Ädellövträd (ekvärdig för NVI) – täckningsskikt 0/1
             adel_files = list(NMD_TRADSLAG_DIR.glob("*adel*.tif")) + \
                          list(NMD_TRADSLAG_DIR.glob("*bok*.tif"))  + \
                          list(NMD_TRADSLAG_DIR.glob("*ekovradel*.tif"))
             trivial_files = list(NMD_TRADSLAG_DIR.glob("*trivial*.tif"))
+            gran_files    = list(NMD_TRADSLAG_DIR.glob("*gran*.tif"))
 
             if adel_files:
                 adel, _ = clip_and_read(adel_files[0], crs_is_sweref=True)
                 adel = resample_to(adel.clip(0, 1), structure.shape)
-                structure += adel * 0.20   # starkt bonus för ädellöv
+                structure += adel * 0.20   # starkt bonus ädellöv
 
             if trivial_files:
                 trivial, _ = clip_and_read(trivial_files[0], crs_is_sweref=True)
                 trivial = resample_to(trivial.clip(0, 1), structure.shape)
                 structure += trivial * 0.08  # lövbonus (björk, asp etc.)
 
+            if gran_files:
+                gran, _ = clip_and_read(gran_files[0], crs_is_sweref=True)
+                gran = resample_to(gran.clip(0, 1), structure.shape)
+                structure -= gran * 0.15   # granmalus: plantageskog ger lägre NVI
+
         # Objekthöjd 5–45 m: proxy för trädhöjd (gammal skog)
         if has_objhojd:
             oh, _ = clip_and_read(NMD_OBJHOJD, crs_is_sweref=True)
             oh = resample_to(oh.clip(0, None), structure.shape)
             structure += normalize(oh) * 0.10
+
+        # Nyckelbiotop-bonus: Skogsstyrelsens nyckelbiotoper indikerar höga naturvärden
+        nb_raster = NYCKELBIOTOP_DIR / "nyckelbiotoper_raster_10m.tif"
+        if nb_raster.exists():
+            nb, _ = clip_and_read(nb_raster, crs_is_sweref=True)
+            nb = resample_to((nb > 0).astype(float), structure.shape)
+            structure += nb * 0.25   # stark bonus – nyckelbiotop = klass 1–2 i NVI
+            print("  + Nyckelbiotop-bonus applicerad")
 
         return np.clip(structure, 0, 1), meta
 

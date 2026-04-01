@@ -17,6 +17,7 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import matplotlib.patches as mpatches
 from pathlib import Path
+from scipy.ndimage import label as _label
 
 sys.path.insert(0, str(Path(__file__).parent))
 from config import AOI_NAME, PROC_DIR, FIGURES_DIR, RASTERS_DIR
@@ -42,6 +43,30 @@ def classify_hotspots(score: np.ndarray) -> tuple[np.ndarray, float, float]:
 
     print(f"  Trosklar: p33={p33:.3f}  p67={p67:.3f}")
     return cls, p33, p67
+
+
+def apply_patch_filter(cls: np.ndarray, pixel_size_m: float,
+                       min_ha: float = 0.5) -> np.ndarray:
+    """Nedgraderar isolerade klasser 2–3 som är för små för fältinventering.
+
+    Sammanhängande pixelgrupper (4-konnektivitet) under min_ha hectar
+    degraderas ett steg: klass 3→2, klass 2→1.
+    Klass 1 påverkas inte – låg prioritet behöver inget minimimått.
+    """
+    min_pixels = max(1, int(min_ha * 10_000 / pixel_size_m**2))
+    result = cls.copy()
+
+    for k in [3, 2]:
+        mask = (cls == k).astype(np.uint8)
+        labeled, n_features = _label(mask)
+        for i in range(1, n_features + 1):
+            patch = labeled == i
+            if patch.sum() < min_pixels:
+                result[patch] = k - 1   # degradera ett steg
+
+    n_degraded = int(np.sum(result != cls))
+    print(f"  Patchfilter ({min_ha} ha): {n_degraded} pixlar nedgraderade")
+    return result
 
 
 # ── Statistik ─────────────────────────────────────────────────────────────────
@@ -152,8 +177,10 @@ def run():
     score[score == nodata] = np.nan
     score = np.nan_to_num(score, nan=0.0)
 
+    px = px_m if px_m > 1 else 10.0
     cls, p33, p67 = classify_hotspots(score)
-    area_statistics(cls, pixel_size_m=px_m if px_m > 1 else 30.0)
+    cls = apply_patch_filter(cls, pixel_size_m=px, min_ha=0.5)
+    area_statistics(cls, pixel_size_m=px)
 
     # Ladda delindex för visualisering
     indices = {}

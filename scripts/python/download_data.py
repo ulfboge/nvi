@@ -37,6 +37,8 @@ from config import (
     LM_DIR,
     SLU_DIR,
     PROTECTED_SITES_DIR,
+    NNK_DIR,
+    NNK_LAN,
     LANTMATERIET_API_KEY,
     get_lantmateriet_token,
     EPSG_SWEREF,
@@ -302,6 +304,127 @@ def download_nyckelbiotoper() -> None:
 
     except Exception as e:
         print(f"  [FEL]  {e}")
+
+
+# ── 4. Naturvårdsverket NNK (Natura Naturtypskartan) ─────────────────────────
+#
+# NNK kartlägger Natura 2000-naturtyper med direkta kvalitetsindikationer.
+# Skogliga N2000-typer (9010, 9070, 9160, 9190, 91D0 etc.) korrelerar med NVI klass 1–2.
+# Öppen nedladdning per län från geodata.naturvardsverket.se.
+
+NNK_BASE = "https://geodata.naturvardsverket.se/nedladdning/naturtypskartan"
+
+# NNK NATURTYP-värden för skogsliga naturtyper med högt naturvärde (NVI klass 1–2).
+# NNK använder egna koder som avviker från N2000-koder:
+#   9740 = Skogbevuxen myr (91D0)
+#   9810 = Osäker Taiga/ickenatura-skog  (möjlig 9010)
+#   9820 = Obestämd ädellövskog (9020, 9850, 9860)
+# Vi inkluderar även trädklädd betesmark (6913) och ädellövskogskoder.
+NNK_FOREST_CODES = {
+    # Säkra skogsliga N2000-typer
+    "9010", "9010A", "9010B",
+    "9020", "9050", "9060", "9070", "9080",
+    "9160", "9190", "91D0", "91E0",
+    # NNK-egna koder
+    "9740",   # Skogbevuxen myr (= 91D0)
+    "9820",   # Obestämd ädellövskog
+    "6913",   # Trädbärande kultiverad betesmark (= 9070)
+}
+
+
+def download_nnk() -> None:
+    print(f"\n[Naturvardsverket NNK – Naturtypskartan (lan {NNK_LAN})]")
+
+    gpkg_out = NNK_DIR / f"nnk_{NNK_LAN.lower()}_skogstyper_aoi.gpkg"
+    if gpkg_out.exists():
+        print(f"  [skip] {gpkg_out.name}")
+        return
+
+    import zipfile, tempfile, os
+
+    url      = f"{NNK_BASE}/Naturtypskartan_{NNK_LAN}.zip"
+    zip_dest = NNK_DIR / f"Naturtypskartan_{NNK_LAN}.zip"
+
+    if not download_file(url, zip_dest):
+        return
+
+    print(f"  Packar upp {zip_dest.name} ...")
+    try:
+        with zipfile.ZipFile(zip_dest, "r") as z:
+            names = z.namelist()
+            gpkg_names = [n for n in names if n.lower().endswith(".gpkg")]
+            shp_names  = [n for n in names if n.lower().endswith(".shp")]
+            print(f"  Innehall: {len(names)} filer  ({len(gpkg_names)} gpkg, {len(shp_names)} shp)")
+
+            # Prioritera YTA (polygoner) framför LIN/PKT
+            yta_names = [n for n in shp_names if "YTA" in n.upper()]
+            if yta_names:
+                target = yta_names[0]
+            elif gpkg_names:
+                target = gpkg_names[0]
+            elif shp_names:
+                target = shp_names[0]
+            else:
+                print("  [FEL] Hittade ingen gpkg/shp i zip-filen")
+                return
+
+            tmp_dir = NNK_DIR / "_tmp_nnk"
+            tmp_dir.mkdir(exist_ok=True)
+            for name in names:
+                if Path(name).suffix.lower() in (".gpkg", ".shp", ".dbf", ".prj", ".shx", ".cpg"):
+                    z.extract(name, tmp_dir)
+
+        # Läs in, filtrera på skogsliga N2000-koder, klipp till AOI
+        x_min, y_min, x_max, y_max = aoi_sweref()
+        aoi_box = box(x_min, y_min, x_max, y_max)
+
+        src_path = tmp_dir / target
+        print(f"  Laser {src_path.name} ...")
+        gdf = gpd.read_file(src_path)
+        print(f"  Totalt {len(gdf)} naturtypspolygoner i lanet")
+
+        # Hitta naturtyps-kolumn
+        nat_col = None
+        for c in gdf.columns:
+            if c.lower() in ("naturtyp", "n2000kod", "natura2000", "kod", "code", "naturtyps_kod"):
+                nat_col = c
+                break
+        if nat_col is None:
+            print(f"  [VARNING] Hittade ingen naturtypskolumn. Kolumner: {list(gdf.columns)}")
+            gdf_aoi = gdf[gdf.geometry.intersects(aoi_box)]
+        else:
+            print(f"  Naturtypskolumn: '{nat_col}'  Unika koder: {gdf[nat_col].nunique()}")
+            # Matcha på NNK_FOREST_CODES – koden kan ha ett suffix " - Beskrivning"
+            def _code_matches(val):
+                s = str(val).strip()
+                # Exakt match
+                if s in NNK_FOREST_CODES:
+                    return True
+                # Koden kan vara "9740 - Skogbevuxen myr (91D0)" – ta första delen
+                prefix = s.split(" ")[0].split("-")[0].strip()
+                return prefix in NNK_FOREST_CODES
+            forest_mask = gdf[nat_col].apply(_code_matches)
+            gdf_forest  = gdf[forest_mask]
+            gdf_aoi     = gdf_forest[gdf_forest.geometry.intersects(aoi_box)]
+            print(f"  Skogsliga N2000-typer i lanet: {len(gdf_forest)}  inom AOI: {len(gdf_aoi)}")
+
+        if gdf_aoi.crs is None:
+            gdf_aoi = gdf_aoi.set_crs(epsg=EPSG_SWEREF)
+        elif gdf_aoi.crs.to_epsg() != EPSG_SWEREF:
+            gdf_aoi = gdf_aoi.to_crs(epsg=EPSG_SWEREF)
+
+        gdf_aoi.to_file(gpkg_out, driver="GPKG")
+        print(f"  [ok]   {gpkg_out.name}  ({len(gdf_aoi)} polygoner)")
+
+    except Exception as e:
+        print(f"  [FEL]  {e}")
+    finally:
+        # Rensa temporär mapp och zip
+        import shutil
+        if (NNK_DIR / "_tmp_nnk").exists():
+            shutil.rmtree(NNK_DIR / "_tmp_nnk", ignore_errors=True)
+        if zip_dest.exists():
+            zip_dest.unlink()
 
 
 # ── 3. SLU Skogliga Grunddata ─────────────────────────────────────────────────
@@ -879,6 +1002,7 @@ def main():
     download_nmd(confirm=args.nmd_confirm)
     download_skogsstyrelsen()
     download_nyckelbiotoper()
+    download_nnk()
     download_slu_grunddata()
     download_lantmateriet_dem()
     if args.protected_sites:

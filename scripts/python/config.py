@@ -68,9 +68,13 @@ NATURVARDSVERKET_DIR = RAW_DIR / "naturvardsverket"
 PROTECTED_SITES_DIR  = NATURVARDSVERKET_DIR / "skyddad_natur"
 # Skogsstyrelsen – nyckelbiotoper (öppet API, samma källa som avverkningar)
 NYCKELBIOTOP_DIR = SKOGSST_DIR  # sparas i skogsstyrelsen/-mappen
+# Naturvårdsverket – Natura Naturtypskartan (NNK), nedladdning per län
+NNK_DIR = NATURVARDSVERKET_DIR / "nnk"
+# Länsbokstav för NNK-nedladdning (O = Västra Götaland, C = Uppsala/Fiby etc.)
+NNK_LAN = "O"
 
 for d in [NMD_DIR, SKOGSST_DIR, LM_DIR, SLU_DIR, S2_EXPORT_DIR,
-          NATURVARDSVERKET_DIR, PROTECTED_SITES_DIR,
+          NATURVARDSVERKET_DIR, PROTECTED_SITES_DIR, NNK_DIR,
           PROC_DIR, FIGURES_DIR, RASTERS_DIR, SPECIES_OUTPUT_DIR,
           ARTER_OBS_DIR, ARTER_RODLISTA_DIR, ARTER_DERIVED_DIR]:
     d.mkdir(parents=True, exist_ok=True)

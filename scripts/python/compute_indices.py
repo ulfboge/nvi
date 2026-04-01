@@ -24,7 +24,7 @@ from config import (
     PROC_DIR, WEIGHTS,
     NMD_FOREST_CLASSES, NMD_WETLAND_CLASSES,
     HANSEN_DIR, WORLDCOVER_DIR, DEM_FALLBACK_DIR,
-    NYCKELBIOTOP_DIR,
+    NYCKELBIOTOP_DIR, NNK_DIR,
 )
 
 try:
@@ -235,6 +235,32 @@ def build_structure_index():
             nb = resample_to((nb > 0).astype(float), structure.shape)
             structure += nb * 0.25   # stark bonus – nyckelbiotop = klass 1–2 i NVI
             print("  + Nyckelbiotop-bonus applicerad")
+
+        # NNK-bonus: Natura 2000-naturtyper (skogsliga) indikerar höga naturvärden
+        nnk_files = list(NNK_DIR.glob("nnk_*_skogstyper_aoi.gpkg"))
+        if nnk_files:
+            try:
+                import geopandas as gpd
+                from rasterio.features import rasterize as _rasterize
+                nnk_gdf = gpd.read_file(nnk_files[0])
+                if len(nnk_gdf) > 0:
+                    if nnk_gdf.crs is None or nnk_gdf.crs.to_epsg() != EPSG_SWEREF:
+                        nnk_gdf = nnk_gdf.to_crs(epsg=EPSG_SWEREF)
+                    # Rasterisera mot strukturindexets grid
+                    geom = geom_sweref()
+                    with rasterio.open(NMD_BASSKIKT) as _src:
+                        _arr, _tf = rio_mask(_src, geom, crop=True)
+                        _shape = (_arr.shape[1], _arr.shape[2])
+                        _transform = _tf
+                    shapes = [(g, 1) for g in nnk_gdf.geometry if g is not None and not g.is_empty]
+                    if shapes:
+                        nnk_arr = _rasterize(shapes, out_shape=_shape,
+                                             transform=_transform, fill=0, dtype="uint8")
+                        nnk_arr = resample_to(nnk_arr.astype(float), structure.shape)
+                        structure += (nnk_arr > 0).astype(float) * 0.20
+                        print(f"  + NNK-bonus applicerad ({len(nnk_gdf)} naturtypspolygoner)")
+            except Exception as _e:
+                print(f"  [VARNING] NNK-bonus misslyckades: {_e}")
 
         return np.clip(structure, 0, 1), meta
 

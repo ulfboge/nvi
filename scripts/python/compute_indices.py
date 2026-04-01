@@ -359,6 +359,19 @@ def compute_indices():
         moisture   * WEIGHTS["moisture"]
     )
 
+    # Maskera bort icke-skogsmark (bebyggelse, åker, vatten m.m.) så att
+    # dessa pixlar inte kan hamna i hotspot-klasser enbart via fukt-/kontinuitetsindex.
+    # NMD-klasserna 1–3 = skog; övriga (4=åker, 5=öppen, 7=exploaterad, 8=vatten) sätts till 0.
+    if NMD_BASSKIKT.exists():
+        print("  Applicerar NMD-skogsmask på NVI-poäng ...")
+        nmd_arr, _ = clip_and_read(NMD_BASSKIKT, crs_is_sweref=True)
+        # Nearest-neighbour för kategoriska klassvärden (bilinär ger meningslösa mellanvärden)
+        from scipy.ndimage import zoom as _zoom
+        factors = (nvi_score.shape[0] / nmd_arr.shape[0], nvi_score.shape[1] / nmd_arr.shape[1])
+        nmd_arr = _zoom(nmd_arr, factors, order=0)
+        non_forest = ~np.isin(nmd_arr.astype(int), NMD_FOREST_CLASSES)
+        nvi_score[non_forest] = 0.0
+
     for arr, suffix in [
         (structure,  "structure_index"),
         (continuity, "continuity_index"),

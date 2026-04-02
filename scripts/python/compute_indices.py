@@ -300,6 +300,18 @@ def build_structure_index():
             except Exception as _e:
                 print(f"  [VARNING] NNK-bonus misslyckades: {_e}")
 
+        # SLU virkesförråd (VOL) – ålderspoxy: hög volym = gammal skog = högt naturvärde.
+        # Avgörande för att skilja gammal naturskog från ung sekundär lövskog med
+        # liknande trädhöjd. Ladda ner med: python download_data.py --slu
+        slu_vol_files = sorted(SLU_DIR.glob("slu_vol_aoi.tif"))
+        if slu_vol_files:
+            vol, _ = clip_and_read(slu_vol_files[0], crs_is_sweref=True)
+            vol = np.where((vol > -9000) & np.isfinite(vol), vol, 0.0)
+            vol = resample_to(vol, structure.shape)
+            vol_norm = normalize(vol, p_lo=5, p_hi=95)
+            structure += vol_norm * 0.12
+            print("  + SLU VOL alderspoxy (12 % vikt)")
+
         return np.clip(structure, 0, 1), meta
 
     # D. Fallback: Hansen treecover2000 (global, alltid tillgänglig)

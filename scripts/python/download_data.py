@@ -450,48 +450,72 @@ def download_nnk() -> None:
 
 SLU_WCS = "https://maps.slu.se/geoserver/slu/wcs"
 
+# Skogsstyrelsens öppna FTP (publika credentials från skogsstyrelsen.se/ftp)
+SLU_FTP_HOST  = "ftpsks.skogsstyrelsen.se"
+SLU_FTP_USER  = "SGD"
+SLU_FTP_PASS  = "0N!nd=I9EJ"
+SLU_FTP_FOLDER = "SkogligaGrunddata_omdrev2_2025_leverans1"
+
+# Variabler att hämta: (FTP-filnamn, lokalt namn)
+SLU_VARS = [
+    ("BIO", "slu_bio_aoi.tif"),   # Biomassa (ton ts/ha) – ålderspoxy
+    ("DGV", "slu_dgv_aoi.tif"),   # Medeldiameter (cm)  – ålderspoxy
+    ("VOL", "slu_vol_aoi.tif"),   # Virkesförråd (m³sk/ha) – ålderspoxy
+]
+
+
 def download_slu_grunddata() -> None:
-    print("\n[SLU Skogliga Grunddata]")
+    """Hämtar SLU Skogliga Grunddata (BIO, DGV, VOL) för AOI via GDAL vsicurl/FTP.
+
+    Skogsstyrelsen tillhandahåller nationella 10 m-raster via öppet FTP
+    (https://www.skogsstyrelsen.se/e-tjanster-och-kartor/karttjanster/
+    geodatatjanster/ftp/). GDAL:s vsicurl streamar bara AOI-fönstret
+    utan att ladda ner hela filen (~4 GB/variabel).
+    """
+    print("\n[SLU Skogliga Grunddata – FTP streaming]")
 
     x_min, y_min, x_max, y_max = aoi_sweref()
+    aoi_bounds = (x_min, y_min, x_max, y_max)
 
-    # Prova WCS GetCapabilities
-    caps_url = (
-        f"{SLU_WCS}?SERVICE=WCS&VERSION=2.0.1&REQUEST=GetCapabilities"
-    )
     try:
-        resp = requests.get(caps_url, timeout=20)
-        # GeoServer returnerar HTML om tjänsten är en SPA – inte WCS
-        if "<!doctype html" in resp.text.lower() or resp.status_code != 200:
-            raise ValueError("WCS-endpoint returnerar inte giltig XML")
+        import rasterio
+        from rasterio.windows import from_bounds as _from_bounds
+        import urllib.parse as _up
+        import numpy as _np
+    except ImportError as e:
+        print(f"  [FEL] Saknar paket: {e}")
+        return
 
-        import re
-        ids = re.findall(r'<[^>]*Identifier[^>]*>(.*?)</', resp.text)
-        if not ids:
-            raise ValueError("Inga coverages i WCS")
+    # Koda lösenord URL-säkert (! och = är specialtecken)
+    pw_enc = _up.quote(SLU_FTP_PASS, safe="")
+    base_url = f"ftp://{SLU_FTP_USER}:{pw_enc}@{SLU_FTP_HOST}/{SLU_FTP_FOLDER}"
 
-        print(f"  WCS tillganglig – hittade coverages: {ids[:5]}")
+    for var_name, local_fname in SLU_VARS:
+        out_path = SLU_DIR / local_fname
+        if out_path.exists():
+            print(f"  [skip] {local_fname} finns redan")
+            continue
 
-        for layer_id, fname in [
-            (ids[0], "slu_biomassa_aoi.tif"),
-            (ids[1] if len(ids) > 1 else ids[0], "slu_hojd_aoi.tif"),
-        ]:
-            wcs_url = (
-                f"{SLU_WCS}?SERVICE=WCS&VERSION=2.0.1&REQUEST=GetCoverage"
-                f"&COVERAGEID={urllib.parse.quote(layer_id)}"
-                f"&SUBSET=E({x_min:.0f},{x_max:.0f})"
-                f"&SUBSET=N({y_min:.0f},{y_max:.0f})"
-                "&FORMAT=image/geotiff"
-            )
-            download_file(wcs_url, SLU_DIR / fname)
-
-    except Exception as e:
-        print(f"  [INFO] SLU WCS ej tillganglig: {e}")
-        print(
-            "  Registrera for SLU Skogliga Grunddata:\n"
-            "  https://www.slu.se/miljoanalys/statistik-och-miljodata/"
-            "miljodatakatalogen/skogliga-grunddata/"
-        )
+        url = f"/vsicurl/{base_url}/{var_name}.tif"
+        print(f"  Laddar {var_name} (streaming)...", end=" ", flush=True)
+        try:
+            with rasterio.open(url) as src:
+                win = _from_bounds(*aoi_bounds, src.transform)
+                data = src.read(1, window=win).astype("float32")
+                data[data <= 0] = -9999.0
+                t = src.window_transform(win)
+                meta = src.meta.copy()
+                meta.update({
+                    "width": data.shape[1], "height": data.shape[0],
+                    "transform": t, "dtype": "float32",
+                    "nodata": -9999.0, "compress": "lzw",
+                })
+            with rasterio.open(out_path, "w", **meta) as dst:
+                dst.write(data, 1)
+            valid = data[data > -9999]
+            print(f"sparat | median={_np.median(valid):.0f} max={valid.max():.0f}")
+        except Exception as e:
+            print(f"\n  [VARNING] Kunde inte hamta {var_name}: {e}")
 
 
 # ── 4. Lantmäteriet GSD-Höjddata (STAC API) ──────────────────────────────────

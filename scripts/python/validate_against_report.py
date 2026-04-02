@@ -2,13 +2,16 @@
 validate_against_report.py
 Jämför pipeline-klassning mot Länsstyrelsens NVI-rapport (2022:42, Djupedal).
 
-Rapport-NVI:  4 klasser (SS 199000:2023)  klass 1=högsta … klass 4=visst
-Pipeline:     3 klasser                   klass 3=hotspot, 2=mellanklass, 1=låg
+Rapport-NVI:  4 klasser (SS 199000:2023)  klass 1=Mycket högt … klass 4=Visst
+Pipeline:     4 klasser (SS 199000:2023)  klass 4=Mycket högt … klass 1=Visst
 
-Mappning för jämförelse:
-  Rapport klass 1+2 (högt/högsta) → förväntat pipeline klass 3
-  Rapport klass 3   (påtagligt)   → förväntat pipeline klass 2
-  Rapport klass 4   (visst)       → förväntat pipeline klass 1
+Mappning för jämförelse (direkt):
+  Rapport klass 1 (Mycket högt) → förväntat pipeline klass 4
+  Rapport klass 2 (Högt)        → förväntat pipeline klass 3
+  Rapport klass 3 (Påtagligt)   → förväntat pipeline klass 2
+  Rapport klass 4 (Visst)       → förväntat pipeline klass 1
+
+Tolerans ±1 klass räknas som "nära träff".
 
 Kör:
   python scripts/python/validate_against_report.py
@@ -88,13 +91,15 @@ REPORT_OBJECTS = [
 
 
 def report_to_pipeline_class(nvi_klass: int) -> int:
-    """Mappar rapport-klass (1–4) till förväntad pipeline-klass (1–3)."""
-    if nvi_klass <= 2:
-        return 3   # Högt/högsta → hotspot
-    elif nvi_klass == 3:
-        return 2   # Påtagligt → mellanklass
-    else:
-        return 1   # Visst → låg prioritet
+    """Mappar rapport-klass (1–4) till förväntad pipeline-klass (4–1, SS 199000:2023).
+
+    Rapport och pipeline använder nu samma 4-klasschema men omvänd numrering:
+      Rapport klass 1 (Mycket högt) → pipeline klass 4
+      Rapport klass 2 (Högt)        → pipeline klass 3
+      Rapport klass 3 (Påtagligt)   → pipeline klass 2
+      Rapport klass 4 (Visst)       → pipeline klass 1
+    """
+    return 5 - nvi_klass   # speglar 1→4, 2→3, 3→2, 4→1
 
 
 def sample_raster_at_point(src, easting: float, northing: float, window: int = 3):
@@ -160,6 +165,10 @@ def run():
     print(f"  Areal-viktad träff:       {match_area/total_area*100:.0f}%"
           f"  ({match_area/10000:.1f} ha av {total_area/10000:.1f} ha)")
 
+    # Tolerans ±1
+    near  = [r for r in results if abs(r["diff"]) <= 1]
+    print(f"  Nära träff (±1 klass):    {len(near)}/{n_total} = {100*len(near)/n_total:.0f}%")
+
     # Avvikelser
     over  = [r for r in results if r["diff"] > 0]
     under = [r for r in results if r["diff"] < 0]
@@ -168,14 +177,19 @@ def run():
 
     # Per rapport-klass
     print("\n  Träff per rapport-klass:")
-    for k, label in [(2, "Klass 2 – Högt"), (3, "Klass 3 – Påtagligt"), (4, "Klass 4 – Visst")]:
+    for k, label in [
+        (1, "Klass 1 – Mycket högt"),
+        (2, "Klass 2 – Högt"),
+        (3, "Klass 3 – Påtagligt"),
+        (4, "Klass 4 – Visst"),
+    ]:
         sub = [r for r in results if r["nvi_klass"] == k]
         if not sub:
             continue
         hits = sum(r["match"] for r in sub)
         a_tot = sum(r["area_m2"] for r in sub)
         a_hit = sum(r["area_m2"] for r in sub if r["match"])
-        print(f"    {label:<25} {hits}/{len(sub)} objekt  "
+        print(f"    {label:<30} {hits}/{len(sub)} objekt  "
               f"({100*a_hit/a_tot:.0f}% areal)")
 
     # ── Detaljlista ──
@@ -203,20 +217,22 @@ def _plot_validation(results, outside):
 
     # ── Confusion matrix (objekt-antal) ──
     ax = axes[0]
-    labels = ["Klass 1\n(Låg)", "Klass 2\n(Mellanklass)", "Klass 3\n(Hotspot)"]
-    cm = np.zeros((3, 3), dtype=int)
+    labels = ["Klass 1\n(Visst)", "Klass 2\n(Påtagligt)", "Klass 3\n(Högt)", "Klass 4\n(Mycket högt)"]
+    cm = np.zeros((4, 4), dtype=int)
     for r in results:
-        cm[r["exp_cls"] - 1, r["pipe_cls"] - 1] += 1
+        ei = min(max(r["exp_cls"] - 1, 0), 3)
+        pi = min(max(r["pipe_cls"] - 1, 0), 3)
+        cm[ei, pi] += 1
     im = ax.imshow(cm, cmap="Blues", vmin=0)
-    ax.set_xticks(range(3)); ax.set_xticklabels(labels, fontsize=9)
-    ax.set_yticks(range(3)); ax.set_yticklabels(labels, fontsize=9)
+    ax.set_xticks(range(4)); ax.set_xticklabels(labels, fontsize=8)
+    ax.set_yticks(range(4)); ax.set_yticklabels(labels, fontsize=8)
     ax.set_xlabel("Pipeline-klass", fontsize=10)
     ax.set_ylabel("Förväntad klass (rapport)", fontsize=10)
-    ax.set_title("Confusion matrix (antal objekt)", fontsize=10)
-    for i in range(3):
-        for j in range(3):
+    ax.set_title("Confusion matrix (antal objekt)\nSS 199000:2023", fontsize=10)
+    for i in range(4):
+        for j in range(4):
             ax.text(j, i, cm[i, j], ha="center", va="center",
-                    fontsize=13, fontweight="bold",
+                    fontsize=12, fontweight="bold",
                     color="white" if cm[i, j] > cm.max() * 0.6 else "black")
 
     # ── Scatter: förväntad vs faktisk klass, storlekskodad ──
@@ -228,19 +244,19 @@ def _plot_validation(results, outside):
                     alpha=0.6,
                     color=colors[r["match"]],
                     edgecolors="grey", linewidths=0.4)
-    ax2.set_xticks([1, 2, 3])
-    ax2.set_yticks([1, 2, 3])
-    ax2.set_xticklabels(["1 (Låg)", "2 (Mellanklass)", "3 (Hotspot)"])
-    ax2.set_yticklabels(["1 (Låg)", "2 (Mellanklass)", "3 (Hotspot)"])
-    ax2.set_xlabel("Förväntad klass (rapport → mappning)", fontsize=10)
+    ax2.set_xticks([1, 2, 3, 4])
+    ax2.set_yticks([1, 2, 3, 4])
+    ax2.set_xticklabels(["1 (Visst)", "2 (Påtagligt)", "3 (Högt)", "4 (Mycket högt)"], fontsize=8)
+    ax2.set_yticklabels(["1 (Visst)", "2 (Påtagligt)", "3 (Högt)", "4 (Mycket högt)"], fontsize=8)
+    ax2.set_xlabel("Förväntad klass (rapport → SS 199000:2023)", fontsize=10)
     ax2.set_ylabel("Pipeline-klass", fontsize=10)
     ax2.set_title("Klassöverensstämmelse per objekt\n(cirkelstorlek ≈ areal)", fontsize=10)
-    ax2.plot([0.5, 3.5], [0.5, 3.5], "k--", lw=1, alpha=0.4, label="Perfekt träff")
+    ax2.plot([0.5, 4.5], [0.5, 4.5], "k--", lw=1, alpha=0.4, label="Perfekt träff")
     ax2.legend(handles=[
         mpatches.Patch(color="#2ca02c", label="Korrekt klass"),
         mpatches.Patch(color="#d62728", label="Felklassad"),
     ], fontsize=9, loc="upper left")
-    ax2.set_xlim(0.5, 3.5); ax2.set_ylim(0.5, 3.5)
+    ax2.set_xlim(0.5, 4.5); ax2.set_ylim(0.5, 4.5)
 
     plt.tight_layout()
     out = FIGURES_DIR / f"{AOI_NAME}_validation_report.png"

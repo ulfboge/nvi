@@ -73,12 +73,17 @@ All bearbetning sker **inom AOI**. Raster **maskas** (klipps) med Shapely-box i 
 
 ### 4.2 Kontinuitetsindex
 
-1. **Skogsstyrelsen** – raster där **1 = avverkad/störd**, **0 = ostört**:
-   - `continuity = 1 − störning`, sedan **mjuk kant** kring störning (uniform filter): pixlar nära avverkning får sänkt kontinuitet (×0,6 där bufferten är tydlig).
+1. **Skogsstyrelsen GPKG med datum** – tidsavklingad störning via `Inkomdatum`:
+   - Störningsvikt = `exp(−ålder_år / 15)` (halvtid 15 år).
+   - Nyligen avverkad (0 år) → vikt ≈ 1,0; 15 år gammal → vikt ≈ 0,37; 30 år → vikt ≈ 0,14.
+   - `continuity = 1 − störningsvikt`, sedan **mjuk kant** kring störda parceller.
+   - Faller tillbaka på binärt raster om GPKG saknas.
 2. **GEE Delindex** – om minst 5 band: NDVI-standardavvikelse m.m. omvandlas till en stabilitetsproxy (lägre variabilitet → högre kontinuitet).
 3. Annars **konstant 0,5** (neutralt) med varning.
 
-**Metodidé:** Högt index ≈ ytor som sällan eller aldrig registrerats som avverkade i datasetet (och inte ligger i “påverkanszon” kring dem).
+**Metodidé:** Högt index ≈ ytor som sällan/aldrig störts, med äldre störningar viktade lägre.
+
+**Begränsning:** Skogsstyrelsen registrerar bara formella avverkningsanmälningar. Oregistrerade planteringar och hyggen utan anmälan ger falskt hög kontinuitet för granplanteringar.
 
 ### 4.3 Fuktindex
 
@@ -88,6 +93,8 @@ All bearbetning sker **inom AOI**. Raster **maskas** (klipps) med Shapely-box i 
 4. Annars **konstant 0,5** med varning.
 
 **Metodidé:** Högt index ≈ topografiskt fuktigare lägen (och ev. kartlagd våtmark).
+
+**TWI-beräkning:** Försöker D8-flödesackumulation via **pysheds** (korrekt upslope-area). Faller tillbaka på enkel 3×3-gradientmetod om pysheds saknas eller är inkompatibelt med installerad NumPy-version.
 
 ### 4.4 NVI-poäng och utdata från steget
 
@@ -109,15 +116,28 @@ All bearbetning sker **inom AOI**. Raster **maskas** (klipps) med Shapely-box i 
 
 **Indata:** `{AOI}_nvi_score.tif`.
 
-**Klassificering (percentilbaserad):**
+**Klassificering (percentilbaserad, SS 199000:2023 4-klasschema):**
 
 - Bara pixlar med **poäng > 0** räknas in i percentilberäkningen.
-- **p33** och **p67** beräknas på dessa värden.
+- **p25**, **p75** och **p93** beräknas på dessa värden.
+- Absoluta golv används för att motverka att lågvärdiga ytor klassas upp enbart av sin relativa rank.
 - Regel (kumulativt högre klass vid högre poäng):
-  - Poäng > 0 → minst klass **1** (låg prioritet).
-  - Poäng > p33 → klass **2** (mellanklass).
-  - Poäng > p67 → klass **3** (hotspot).
+  - Poäng > 0             → klass **1** – Visst naturvärde.
+  - Poäng > p25 (min 0,38) → klass **2** – Påtagligt naturvärde.
+  - Poäng > p75 (min 0,72) → klass **3** – Högt naturvärde.
+  - Poäng > p93 (min 0,85) → klass **4** – Mycket högt naturvärde.
 - Pixlar med poäng 0 blir **0** (nodata för klasser).
+
+**Validering mot Länsstyrelsens NVI-rapport 2022:42 (Djupedal, 44 objekt):**
+
+| Mätning | Värde |
+|---------|-------|
+| Exakt klassträff | 32 % (14/44) |
+| Nära träff (±1 klass) | **84 %** (37/44) – viktigaste praktiska mätning |
+| Areal-viktad träff | 55 % |
+| Överskattade objekt | 26 (systematisk bias mot för hög klass) |
+
+Kvarstående systematisk överskattning förklaras av att granplanteringar utan avverkningsanmälan får hög kontinuitetspoäng — en oundviklig begränsning med Skogsstyrelsens anmälningsdata (se §8).
 
 **Arealstatistik** skrivs till terminal (ungefärlig hektar baserat på pixelstorlek från transform, fallback 30 m om något är konstigt).
 

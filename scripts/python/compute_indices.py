@@ -141,18 +141,65 @@ def resample_to(arr: np.ndarray, target_shape: tuple) -> np.ndarray:
 # ── TWI-beräkning ─────────────────────────────────────────────────────────────
 
 def compute_twi(dem: np.ndarray, cell_m: float = 2.0) -> np.ndarray:
-    """Topographic Wetness Index (TWI = ln(a / tan(beta)))."""
-    dem_clean = np.where(np.isfinite(dem) & (dem > -1000), dem, np.nanmedian(dem))
+    """Topographic Wetness Index (TWI = ln(a / tan(beta))).
+
+    Försöker pysheds D8-flödesackumulation för korrekt upslope-area.
+    Faller tillbaka på enkel 3×3-gradientmetod om pysheds saknas/misslyckas.
+    """
+    valid_mask = np.isfinite(dem) & (dem > -1000)
+    dem_clean = np.where(valid_mask, dem, np.nanmedian(dem[valid_mask]))
+
+    # ── Försök med pysheds D8 ──────────────────────────────────────────────────
+    try:
+        import tempfile, os
+        from pysheds.grid import Grid
+
+        with tempfile.NamedTemporaryFile(suffix=".tif", delete=False) as tmp:
+            tmp_path = tmp.name
+        try:
+            import rasterio
+            from rasterio.transform import from_origin
+            # Bygg ett minimalt GeoTIFF som pysheds kan läsa
+            h, w = dem_clean.shape
+            transform = from_origin(0, h * cell_m, cell_m, cell_m)
+            with rasterio.open(
+                tmp_path, "w", driver="GTiff", height=h, width=w,
+                count=1, dtype="float32", crs="EPSG:3006", transform=transform,
+                nodata=-9999.0,
+            ) as dst:
+                dst.write(dem_clean.astype("float32"), 1)
+
+            grid = Grid.from_raster(tmp_path)
+            dem_g = grid.read_raster(tmp_path)
+            pit_filled = grid.fill_pits(dem_g)
+            flooded = grid.fill_depressions(pit_filled)
+            inflated = grid.resolve_flats(flooded)
+            fdir = grid.flowdir(inflated)
+            acc = grid.accumulation(fdir)
+
+            # Lutning från gradient
+            dy, dx = np.gradient(dem_clean, cell_m)
+            slope = np.arctan(np.sqrt(dx**2 + dy**2))
+            tan_slope = np.clip(np.tan(slope), 0.001, None)
+
+            # Upslope area (pixelenhet × cell_m²)
+            upslope_area = (np.array(acc, dtype=float) + 1.0) * cell_m**2
+            twi = np.log(upslope_area / tan_slope)
+            print("  TWI: D8-flödesackumulation (pysheds)")
+            return np.where(valid_mask, twi, np.nan)
+        finally:
+            os.unlink(tmp_path)
+
+    except Exception as _e:
+        print(f"  TWI: pysheds misslyckades ({_e}) – faller tillbaka till enkel gradient")
+
+    # ── Fallback: enkel 3×3-gradientmetod ────────────────────────────────────
     dy, dx = np.gradient(dem_clean, cell_m)
     slope = np.arctan(np.sqrt(dx**2 + dy**2))
     tan_slope = np.clip(np.tan(slope), 0.001, None)
-
-    def upslope_count(p):
-        return float(np.sum(p > p[4]))
-
-    flow_acc = generic_filter(dem_clean, upslope_count, size=3) + 1.0
+    flow_acc = generic_filter(dem_clean, lambda p: float(np.sum(p > p[4])), size=3) + 1.0
     twi = np.log(flow_acc / tan_slope)
-    return np.where(np.isfinite(dem), twi, np.nan)
+    return np.where(valid_mask, twi, np.nan)
 
 
 # ── 1. Strukturindex ──────────────────────────────────────────────────────────
@@ -197,7 +244,14 @@ def build_structure_index():
 
         nmd, meta = clip_and_read(NMD_BASSKIKT, crs_is_sweref=True)
         forest_mask = np.isin(nmd.astype(int), NMD_FOREST_CLASSES).astype(float)
-        texture     = generic_filter(forest_mask, np.std, size=7)
+
+        # Patch interior area: avstånd till skogsrand (i pixlar) normaliserat till [0,1].
+        # Pixlar nära kanten (stig, hygge, öppen mark) får lägre texturvärde.
+        # Ersätter glidande std som gynnade gränspixlar oavsett miljökvalitet.
+        from scipy.ndimage import distance_transform_edt as _dist_edt
+        interior_dist = _dist_edt(forest_mask > 0)   # avstånd i pixlar från icke-skog
+        max_dist = np.percentile(interior_dist[interior_dist > 0], 98) if interior_dist.max() > 0 else 1.0
+        texture = np.clip(interior_dist / (max_dist + 1e-9), 0, 1) * forest_mask
 
         # Läs gran-raster INNAN baseline sätts för differentierad startpunkt.
         # Gran-dominerad skog (>60 %) startar på 0.20 istället för 0.50.
@@ -209,9 +263,9 @@ def build_structure_index():
                 gran_raw, _ = clip_and_read(gran_files[0], crs_is_sweref=True)
                 gran = resample_to(gran_raw.clip(0, 1), forest_mask.shape)
 
-        gran_dom = (gran > 0.6) & (forest_mask > 0)
+        gran_dom = (gran > 0.45) & (forest_mask > 0)   # sänkt tröskel: fler granpixlar fångas
         structure = np.where(gran_dom,
-                             forest_mask * 0.20,   # plantage-gran: låg bas
+                             forest_mask * 0.15,   # plantage-gran: låg bas
                              forest_mask * 0.50)   # övrig skog: normal bas
         structure = structure + normalize(texture) * 0.2
 
@@ -231,10 +285,24 @@ def build_structure_index():
             if trivial_files:
                 trivial, _ = clip_and_read(trivial_files[0], crs_is_sweref=True)
                 trivial = resample_to(trivial.clip(0, 1), structure.shape)
-                structure += trivial * 0.08  # lövbonus (björk, asp etc.)
+                structure += trivial * 0.05  # lövbonus (björk, asp etc.) – reducerat för sekundär lövskog
 
             if gran_files:
-                structure -= gran * 0.10   # ytterligare malus (utöver lägre bas)
+                structure -= gran * 0.12   # ytterligare malus (utöver lägre bas)
+
+        # Sekundär lövskog-malus: NMD lövskogsklass (12x) utan ädellöv → troligt ung sekundär lövskog.
+        nmd_int = nmd.astype(int)
+        secondary_lov = np.isin(nmd_int, list(range(120, 130))) & (forest_mask > 0)
+        if secondary_lov.any():
+            sec_malus = secondary_lov.astype(float) * 0.08
+            if has_tradslag and adel_files:
+                # Minska malusen där ädellöv finns (äkta ädellövskog ska inte straffas)
+                adel_mask = resample_to((adel > 0.15).astype(float), structure.shape)
+                sec_malus_r = resample_to(sec_malus, structure.shape)
+                structure -= sec_malus_r * (1.0 - adel_mask)
+            else:
+                structure -= resample_to(sec_malus, structure.shape)
+            print("  + Sekundärlövskog-malus applicerad (NMD klass 12x)")
 
         # Objekthöjd 5–45 m: proxy för trädhöjd (gammal skog)
         if has_objhojd:
@@ -243,13 +311,17 @@ def build_structure_index():
             structure += normalize(oh) * 0.10
 
         # LiDAR (LAZ → compute_lidar_chm.py): CHM, vertikal spridning, dödvedsproxy
+        # Gran-dominerade pixlar får reducerad LiDAR-bonus: lång gran != högt naturvärde.
+        gran_dom_r = resample_to(gran_dom.astype(float), structure.shape)
         lidar_chm = PROC_DIR / f"{AOI_NAME}_lidar_chm_max.tif"
         if lidar_chm.exists():
             chm_r, _ = clip_and_read(lidar_chm, crs_is_sweref=True)
             chm_r = np.where((chm_r > -9000) & np.isfinite(chm_r), chm_r, np.nan)
             chm_r = resample_to(np.nan_to_num(chm_r, nan=0.0), structure.shape)
-            structure += normalize(chm_r) * 0.12
-            print("  + LiDAR CHM (max) bonus")
+            # Reducera bonus med 60 % för granpixlar (hög gran = inte naturvärde i sig)
+            chm_weight = np.where(gran_dom_r > 0.5, 0.05, 0.12)
+            structure += normalize(chm_r) * chm_weight
+            print("  + LiDAR CHM (max) bonus (reducerad for gran)")
         lidar_vc = PROC_DIR / f"{AOI_NAME}_lidar_vert_complexity.tif"
         if lidar_vc.exists():
             vc, _ = clip_and_read(lidar_vc, crs_is_sweref=True)
@@ -333,27 +405,97 @@ def build_structure_index():
 # ── 2. Kontinuitetsindex ──────────────────────────────────────────────────────
 #
 # Prioritetsordning:
-#   A. Skogsstyrelsen avverkningsraster (svensk primärkälla) — bäst
-#   B. NMD temporär stabilitet (om GEE-export med NDVI std) — komplement
+#   A. Skogsstyrelsen GPKG med datum → tidsavvägd störningsraster (bäst)
+#   B. Skogsstyrelsen binärt raster (fallback om GPKG saknas)
+#   C. GEE-export med NDVI std (komplement)
+
+def _time_decay_disturbance(gpkg_path: Path, x_min, y_min, x_max, y_max,
+                             resolution: float = 10.0,
+                             decay_halflife_years: float = 15.0) -> np.ndarray:
+    """Rasteriserar avverkningar med tidsavklingning.
+
+    Störningsvikten avtar exponentiellt med ålder:
+      w = exp(-age_years / decay_halflife_years)
+    Nyligen avverkad (0 år) → w ≈ 1.0 (hög störning)
+    15 år gammal           → w ≈ 0.37
+    30 år gammal           → w ≈ 0.14
+    50 år gammal           → w ≈ 0.03
+
+    Retur: 2D-array med störningsvikter [0, 1] (0 = ostört, 1 = nyligen avverkat).
+    """
+    try:
+        import geopandas as gpd
+        from rasterio.features import rasterize as _rasterize
+        from rasterio.transform import from_bounds as _from_bounds
+        import datetime
+    except ImportError:
+        return None
+
+    gdf = gpd.read_file(gpkg_path)
+    if len(gdf) == 0:
+        return None
+
+    width  = max(1, int((x_max - x_min) / resolution))
+    height = max(1, int((y_max - y_min) / resolution))
+    transform = _from_bounds(x_min, y_min, x_max, y_max, width, height)
+
+    now_year = datetime.datetime.now().year
+    disturbance = np.zeros((height, width), dtype=float)
+
+    for _, row in gdf.iterrows():
+        if row.geometry is None or row.geometry.is_empty:
+            continue
+        # Inkomdatum är ms sedan epoch (ArcGIS REST-format)
+        try:
+            ts_ms = float(row.get("Inkomdatum", 0) or 0)
+            year = datetime.datetime.fromtimestamp(ts_ms / 1000).year
+        except Exception:
+            year = now_year  # okänt datum → behandla som nyligen
+        age_years = max(0, now_year - year)
+        weight = float(np.exp(-age_years / decay_halflife_years))
+
+        patch = _rasterize(
+            [(row.geometry, weight)],
+            out_shape=(height, width),
+            transform=transform,
+            fill=0.0,
+            dtype="float32",
+        )
+        disturbance = np.maximum(disturbance, patch)
+
+    return disturbance
+
 
 def build_continuity_index(target_shape: tuple):
-    # A. Skogsstyrelsen avverkningsraster
+    # A. Skogsstyrelsen GPKG med datum → tidsavvägd störning
+    avverk_gpkg = SKOGSST_DIR / "avverkningar_aoi.gpkg"
+    if avverk_gpkg.exists():
+        print("  Kalla: Skogsstyrelsen avverkningar (tidsavvagd)")
+        x_min, y_min, x_max, y_max = aoi_sweref()
+        disturbance = _time_decay_disturbance(avverk_gpkg, x_min, y_min, x_max, y_max)
+        if disturbance is not None:
+            continuity = 1.0 - disturbance
+            continuity = resample_to(continuity, target_shape)
+            # Mjuka kanter kring störda parceller
+            disturbed_buf = uniform_filter(disturbance, size=3)
+            disturbed_buf = resample_to(disturbed_buf, target_shape)
+            continuity[disturbed_buf > 0.1] *= 0.7
+            print(f"  + Tidsvagd: decay-halvtid {15} ar (nyligen avverkad=lag, gammal=hog)")
+            return continuity
+
+    # B. Fallback: binärt raster
     avverk_files = sorted(SKOGSST_DIR.glob("*raster*.tif"))
     if avverk_files:
-        print("  Kalla: Skogsstyrelsen avverkningsanmalningar")
+        print("  Kalla: Skogsstyrelsen avverkningsraster (binart)")
         arr, _ = merge_and_clip(avverk_files)
-        # 1 = avverkad (störd), 0 = ostört
         continuity = 1.0 - arr.clip(0, 1)
         continuity = resample_to(continuity, target_shape)
-
-        # Mjuka kanter kring avverkade parceller
         disturbed_buffered = uniform_filter(arr.clip(0, 1), size=3)
         disturbed_buffered = resample_to(disturbed_buffered, target_shape)
         continuity[disturbed_buffered > 0.1] *= 0.6
-
         return continuity
 
-    # B. Fallback: om GEE-export med NDVI std finns
+    # C. Fallback: om GEE-export med NDVI std finns
     gee_files = list(S2_EXPORT_DIR.glob("*Delindex*.tif"))
     if gee_files:
         print("  Kalla: GEE NDVI-stabilitet (band 5 = NDVI std)")

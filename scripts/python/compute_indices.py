@@ -26,6 +26,7 @@ from config import (
     NMD_FOREST_CLASSES, NMD_WETLAND_CLASSES,
     HANSEN_DIR, WORLDCOVER_DIR, DEM_FALLBACK_DIR,
     NYCKELBIOTOP_DIR, NNK_DIR,
+    SPECIES_OUTPUT_DIR,
 )
 
 try:
@@ -452,6 +453,23 @@ def compute_indices():
     # Maskera bort icke-skogsmark (bebyggelse, åker, vatten m.m.) så att
     # dessa pixlar inte kan hamna i hotspot-klasser enbart via fukt-/kontinuitetsindex.
     # NMD-klasserna 1–3 = skog; övriga (4=åker, 5=öppen, 7=exploaterad, 8=vatten) sätts till 0.
+    # Artdata-bonus: observationer av hotade arter (VU/EN/CR från Rödlistan) lyfter
+    # NVI-poängen i pixlar med fynd. Rastern skapas av species_overlay_a.py och
+    # sparas i outputs/species/. Bonus appliceras FÖRE skogsmask så att hotade
+    # arter i kantzoner inte raderas ut av masken.
+    species_raster = SPECIES_OUTPUT_DIR / f"{AOI_NAME}_species_threat_obs_count.tif"
+    if species_raster.exists():
+        print("  Applicerar artdata-bonus (hotade arter från Rodlistan) ...")
+        with rasterio.open(species_raster) as _src:
+            sp_arr = _src.read(1).astype(float)
+        sp_arr = resample_to(sp_arr, nvi_score.shape)
+        # Normalisera: ≥1 fynd = 0.10 bonus, ≥3 fynd = 0.15 bonus (tak vid 0.15)
+        sp_bonus = np.where(sp_arr >= 3, 0.15,
+                   np.where(sp_arr >= 1, 0.10, 0.0))
+        nvi_score = np.clip(nvi_score + sp_bonus, 0, 1)
+        n_px = int((sp_arr >= 1).sum())
+        print(f"  + {n_px} pixlar med hotade artfynd bonifierade")
+
     if NMD_BASSKIKT.exists():
         print("  Applicerar NMD-skogsmask på NVI-poäng ...")
         nmd_arr, _ = clip_and_read(NMD_BASSKIKT, crs_is_sweref=True)

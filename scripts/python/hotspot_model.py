@@ -31,17 +31,28 @@ except ImportError:
 # ── Klassificering ────────────────────────────────────────────────────────────
 
 def classify_hotspots(score: np.ndarray) -> tuple[np.ndarray, float, float]:
-    """Percentilbaserad 3-klassklassificering (p33 / p67)."""
+    """Percentilbaserad 3-klassklassificering (p33 / p67) med absolut golv.
+
+    Absolut minimum säkerställer att låg-poäng-ytor (t.ex. granplantager)
+    inte klassas upp enbart av sin relativa rank i fördelningen.
+      MIN_KLASS2 = 0.45 – kräver minst 45 % av maxpoäng för mellanklass
+      MIN_KLASS3 = 0.60 – kräver minst 60 % av maxpoäng för hotspot
+    """
     valid = score[score > 0]
     p33 = float(np.percentile(valid, 33))
     p67 = float(np.percentile(valid, 67))
+
+    MIN_KLASS2 = 0.45
+    MIN_KLASS3 = 0.60
+    p33 = max(p33, MIN_KLASS2)
+    p67 = max(p67, MIN_KLASS3)
 
     cls = np.zeros_like(score, dtype=np.uint8)
     cls[score > 0]    = 1   # Låg prioritet
     cls[score > p33]  = 2   # Mellanklass
     cls[score > p67]  = 3   # Hotspot
 
-    print(f"  Trosklar: p33={p33:.3f}  p67={p67:.3f}")
+    print(f"  Trosklar: p33={p33:.3f}  p67={p67:.3f}  (golv klass2≥{MIN_KLASS2}, klass3≥{MIN_KLASS3})")
     return cls, p33, p67
 
 

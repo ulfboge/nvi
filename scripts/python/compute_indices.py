@@ -197,16 +197,30 @@ def build_structure_index():
         nmd, meta = clip_and_read(NMD_BASSKIKT, crs_is_sweref=True)
         forest_mask = np.isin(nmd.astype(int), NMD_FOREST_CLASSES).astype(float)
         texture     = generic_filter(forest_mask, np.std, size=7)
-        structure   = forest_mask * 0.5 + normalize(texture) * 0.2
 
-        # Trädslag: ädellöv och trivial löv ger bonus; gran ger malus
+        # Läs gran-raster INNAN baseline sätts för differentierad startpunkt.
+        # Gran-dominerad skog (>60 %) startar på 0.20 istället för 0.50.
+        gran = np.zeros(forest_mask.shape)
+        gran_files: list = []
+        if has_tradslag:
+            gran_files = list(NMD_TRADSLAG_DIR.glob("*gran*.tif"))
+            if gran_files:
+                gran_raw, _ = clip_and_read(gran_files[0], crs_is_sweref=True)
+                gran = resample_to(gran_raw.clip(0, 1), forest_mask.shape)
+
+        gran_dom = (gran > 0.6) & (forest_mask > 0)
+        structure = np.where(gran_dom,
+                             forest_mask * 0.20,   # plantage-gran: låg bas
+                             forest_mask * 0.50)   # övrig skog: normal bas
+        structure = structure + normalize(texture) * 0.2
+
+        # Trädslag: ädellöv och trivial löv ger bonus; gran ger ytterligare malus
         # Filer: adel, bok, ekovradel = högt värde  |  trivial = måttligt  |  gran = negativt
         if has_tradslag:
             adel_files = list(NMD_TRADSLAG_DIR.glob("*adel*.tif")) + \
                          list(NMD_TRADSLAG_DIR.glob("*bok*.tif"))  + \
                          list(NMD_TRADSLAG_DIR.glob("*ekovradel*.tif"))
             trivial_files = list(NMD_TRADSLAG_DIR.glob("*trivial*.tif"))
-            gran_files    = list(NMD_TRADSLAG_DIR.glob("*gran*.tif"))
 
             if adel_files:
                 adel, _ = clip_and_read(adel_files[0], crs_is_sweref=True)
@@ -219,9 +233,7 @@ def build_structure_index():
                 structure += trivial * 0.08  # lövbonus (björk, asp etc.)
 
             if gran_files:
-                gran, _ = clip_and_read(gran_files[0], crs_is_sweref=True)
-                gran = resample_to(gran.clip(0, 1), structure.shape)
-                structure -= gran * 0.15   # granmalus: plantageskog ger lägre NVI
+                structure -= gran * 0.10   # ytterligare malus (utöver lägre bas)
 
         # Objekthöjd 5–45 m: proxy för trädhöjd (gammal skog)
         if has_objhojd:
@@ -257,8 +269,10 @@ def build_structure_index():
         if nb_raster.exists():
             nb, _ = clip_and_read(nb_raster, crs_is_sweref=True)
             nb = resample_to((nb > 0).astype(float), structure.shape)
-            structure += nb * 0.25   # stark bonus – nyckelbiotop = klass 1–2 i NVI
-            print("  + Nyckelbiotop-bonus applicerad")
+            # Gran-dominerade nyckelbiotoper får lägre bonus (0.10) än lövdominerade (0.25)
+            nb_bonus = np.where(gran > 0.6, nb * 0.10, nb * 0.25)
+            structure += nb_bonus
+            print("  + Nyckelbiotop-bonus applicerad (trädslagsadekvat)")
 
         # NNK-bonus: Natura 2000-naturtyper (skogsliga) indikerar höga naturvärden
         nnk_files = list(NNK_DIR.glob("nnk_*_skogstyper_aoi.gpkg"))

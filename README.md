@@ -22,6 +22,10 @@ python scripts/python/generate_showcase.py
 
 **Valfritt — skyddad natur till showcase:** efter att `hotspot_class.tif` finns, kör `python scripts/python/download_data.py --protected-sites-only` och sedan `generate_showcase.py` igen (producerar `docs/assets/hotspot_protected_context.png`).
 
+**Valfritt — SLU Skogskarta 2018 + kol 2023 (stora filer, ofta `E:/slu_gis`):** `download_data.py --slu-forest-map-confirm` och/eller `--slu-carbon-confirm` (se [PIPELINE_METOD.md](PIPELINE_METOD.md) §3). Styr rot med `SLU_GIS_LARGE_ROOT` i `.env`.
+
+**Valfritt — validering / A–B-jämförelse:** `validate_against_gpkg.py` mot kommunal GPKG; `compare_hotspot_runs.py --ref …` mot sparad referensraster.
+
 **Valfritt — artdata:** `fetch_public_observations.py` (GBIF och/eller SOS med `SOS_API_BASE` + `SOS_SUBSCRIPTION_KEY` i `.env`), `fetch_swedish_redlist_gbif.py` för rödlista-CSV, `species_overlay_a.py` mot `outputs/species/`. Detaljer i [SPECIES_RODLISTA.md](SPECIES_RODLISTA.md).
 
 **Projektstatus (Kungsbacka, arkiverad anteckning):** [docs/_archive/kungsbacka_status_och_nasta_steg.md](docs/_archive/kungsbacka_status_och_nasta_steg.md).

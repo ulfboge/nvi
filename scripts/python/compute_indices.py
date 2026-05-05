@@ -2,9 +2,9 @@
 compute_indices.py
 Beräknar NVI-delindex från svenska datakällor:
 
-  Strukturindex   – SLU Skogliga Grunddata (biomassa/höjd) eller NMD-proxy
+  Strukturindex   – SLU Skogliga Grunddata (biomassa/höjd) eller NMD-proxy; valfritt SLU Skogskarta 2018
   Kontinuitetsindex – Skogsstyrelsen avverkningsraster + NDVI-stabilitet
-  Fuktindex       – TWI från Lantmäteriet Höjddata (eller fallback DEM)
+  Fuktindex       – TWI från Lantmäteriet Höjddata (eller fallback DEM); valfritt SLU torv + SLU kol 2023
 
 Körordning:
   1. python scripts/python/download_data.py
@@ -22,6 +22,8 @@ from config import (
     AOI_BBOX, AOI_NAME, EPSG_SWEREF,
     NMD_DIR, NMD_BASSKIKT, NMD_OBJHOJD, NMD_TRADSLAG_DIR,
     SKOGSST_DIR, LM_DIR, SLU_DIR, S2_EXPORT_DIR,
+    SLU_SKOGSALDER_DIR, SLU_LICHEN_DIR, SLU_PEAT_DIR,
+    SLU_FOREST_MAP_DIR, SLU_CARBON_DIR,
     PROC_DIR, WEIGHTS,
     NMD_FOREST_CLASSES, NMD_WETLAND_CLASSES,
     HANSEN_DIR, WORLDCOVER_DIR, DEM_FALLBACK_DIR,
@@ -75,6 +77,30 @@ def clip_and_read(tif_path: Path, crs_is_sweref: bool = True):
     return arr[0].astype(float), meta
 
 
+def try_clip_and_read(tif_path: Path, crs_is_sweref: bool = True):
+    """Som clip_and_read men returnerar None om raster inte överlappar AOI."""
+    try:
+        with rasterio.open(tif_path) as src:
+            if crs_is_sweref:
+                x_min, y_min, x_max, y_max = aoi_sweref()
+                aoi_box = box(x_min, y_min, x_max, y_max)
+            else:
+                aoi_box = box(
+                    AOI_BBOX["min_lon"],
+                    AOI_BBOX["min_lat"],
+                    AOI_BBOX["max_lon"],
+                    AOI_BBOX["max_lat"],
+                )
+            src_box = box(src.bounds.left, src.bounds.bottom, src.bounds.right, src.bounds.top)
+            if not aoi_box.intersects(src_box):
+                return None
+        return clip_and_read(tif_path, crs_is_sweref=crs_is_sweref)
+    except ValueError as e:
+        if "do not overlap raster" in str(e):
+            return None
+        raise
+
+
 def merge_and_clip(paths: list, crs_is_sweref: bool = True):
     """Sätter ihop brickor och klipper till AOI."""
     # Filtrera bort tiles som inte överlappar AOI
@@ -121,8 +147,11 @@ def normalize(arr: np.ndarray, p_lo: float = 2, p_hi: float = 98) -> np.ndarray:
 def save_raster(arr: np.ndarray, meta: dict, suffix: str) -> Path:
     out = PROC_DIR / f"{AOI_NAME}_{suffix}.tif"
     m = meta.copy()
-    m.update({"dtype": "float32", "count": 1, "nodata": -9999.0,
-              "crs": f"EPSG:{EPSG_SWEREF}"})
+    m.update({"dtype": "float32", "count": 1, "nodata": -9999.0})
+    # Behåll CRS från käll-raster (clip_and_read); undviker PROJ/pyproj-krock vid
+    # omparsning av "EPSG:3006" på vissa Windows-installationer.
+    if m.get("crs") is None:
+        m["crs"] = f"EPSG:{EPSG_SWEREF}"
     with rasterio.open(out, "w", **m) as dst:
         dst.write(np.where(np.isfinite(arr), arr.astype("float32"), -9999.0), 1)
     print(f"  >> {out.name}")
@@ -136,6 +165,55 @@ def resample_to(arr: np.ndarray, target_shape: tuple) -> np.ndarray:
     from scipy.ndimage import zoom
     factors = (target_shape[0] / arr.shape[0], target_shape[1] / arr.shape[1])
     return zoom(arr, factors, order=1)
+
+
+def _slu_forest_map_species_share_paths() -> list[Path]:
+    """SLU Skogskarta 2018: andelstraster (0–1) — används som komplement till NMD-trädslag."""
+    if not SLU_FOREST_MAP_DIR.exists():
+        return []
+    names = ("Ek_andel.tif", "Bok_andel.tif", "OvrLov_andel.tif")
+    return [SLU_FOREST_MAP_DIR / n for n in names if (SLU_FOREST_MAP_DIR / n).exists()]
+
+
+def _apply_slu_forest_map_to_structure(structure: np.ndarray) -> np.ndarray:
+    """Höjer struktur där fjärranalys visar hög ädellöv / övrigt löv (Skogskarta 2018)."""
+    paths = _slu_forest_map_species_share_paths()
+    if not paths:
+        return structure
+    layers: list[np.ndarray] = []
+    for p in paths:
+        try:
+            out = try_clip_and_read(p, crs_is_sweref=True)
+            if out is None:
+                continue
+            arr, _ = out
+            arr = np.where(np.isfinite(arr), np.clip(arr, 0.0, 1.0), 0.0)
+            layers.append(resample_to(arr, structure.shape))
+        except Exception as e:
+            print(f"  [VARNING] Skogskarta {p.name} kunde inte lasas: {e}")
+    if not layers:
+        return structure
+    fm_proxy = normalize(np.mean(np.stack(layers, axis=0), axis=0), p_lo=5, p_hi=95)
+    blended = np.clip(structure + fm_proxy * 0.08, 0, 1)
+    print("  + SLU Skogskarta 2018 (ek/bok/ovrlov-andel) — 8 % bonus pa struktur")
+    return blended
+
+
+def _pick_slu_carbon_stock_tif() -> Path | None:
+    if not SLU_CARBON_DIR.exists():
+        return None
+    cands = sorted(SLU_CARBON_DIR.glob("*.tif"))
+    if not cands:
+        return None
+    for p in cands:
+        n = p.name.lower()
+        if "stock" in n and "soc" in n:
+            return p
+    for p in cands:
+        n = p.name.lower()
+        if "stock" in n and "dom" in n:
+            return p
+    return cands[0]
 
 
 # ── TWI-beräkning ─────────────────────────────────────────────────────────────
@@ -378,12 +456,46 @@ def build_structure_index():
         # liknande trädhöjd. Ladda ner med: python download_data.py --slu
         slu_vol_files = sorted(SLU_DIR.glob("slu_vol_aoi.tif"))
         if slu_vol_files:
-            vol, _ = clip_and_read(slu_vol_files[0], crs_is_sweref=True)
-            vol = np.where((vol > -9000) & np.isfinite(vol), vol, 0.0)
-            vol = resample_to(vol, structure.shape)
-            vol_norm = normalize(vol, p_lo=5, p_hi=95)
-            structure += vol_norm * 0.12
-            print("  + SLU VOL alderspoxy (12 % vikt)")
+            try:
+                vol, _ = clip_and_read(slu_vol_files[0], crs_is_sweref=True)
+                vol = np.where((vol > -9000) & np.isfinite(vol), vol, 0.0)
+                vol = resample_to(vol, structure.shape)
+                vol_norm = normalize(vol, p_lo=5, p_hi=95)
+                structure += vol_norm * 0.12
+                print("  + SLU VOL alderspoxy (12 % vikt)")
+            except ValueError as e:
+                # Vanligt när slu_vol_aoi.tif råkar vara från ett annat AOI.
+                if "do not overlap raster" in str(e):
+                    print("  [info] SLU VOL saknar overlap med AOI – hoppar over lagret")
+                else:
+                    raise
+
+        # SLU lavindikator 2025 (kontinuerlig/kategorisk) – biodiversitetsproxy
+        lichen_cont = SLU_LICHEN_DIR / "SLU_lavindikatorkartan_2025_kontinuerligt.tif"
+        lichen_cat = SLU_LICHEN_DIR / "SLU_lavindikatorkartan_2025_kategorisk.tif"
+        if lichen_cont.exists() or lichen_cat.exists():
+            try:
+                lichen_bonus = np.zeros(structure.shape, dtype=float)
+                if lichen_cont.exists():
+                    out = try_clip_and_read(lichen_cont, crs_is_sweref=True)
+                    if out is not None:
+                        lav_arr, _ = out
+                        lav_arr = np.where(np.isfinite(lav_arr), lav_arr, np.nan)
+                        lav_arr = resample_to(np.nan_to_num(lav_arr, nan=0.0), structure.shape)
+                        lichen_bonus += normalize(lav_arr, p_lo=5, p_hi=95) * 0.08
+                if lichen_cat.exists():
+                    out = try_clip_and_read(lichen_cat, crs_is_sweref=True)
+                    if out is not None:
+                        lav_cat, _ = out
+                        lav_cat = resample_to(np.nan_to_num(lav_cat, nan=0.0), structure.shape)
+                        lichen_bonus += normalize(lav_cat, p_lo=0, p_hi=100) * 0.04
+                if np.any(lichen_bonus > 0):
+                    structure += lichen_bonus
+                    print("  + SLU lavindikator-bonus applicerad")
+            except Exception as e:
+                print(f"  [VARNING] Lavindikatorlager kunde inte användas: {e}")
+
+        structure = _apply_slu_forest_map_to_structure(structure)
 
         return np.clip(structure, 0, 1), meta
 
@@ -467,6 +579,7 @@ def _time_decay_disturbance(gpkg_path: Path, x_min, y_min, x_max, y_max,
 
 
 def build_continuity_index(target_shape: tuple):
+    continuity = None
     # A. Skogsstyrelsen GPKG med datum → tidsavvägd störning
     avverk_gpkg = SKOGSST_DIR / "avverkningar_aoi.gpkg"
     if avverk_gpkg.exists():
@@ -481,11 +594,13 @@ def build_continuity_index(target_shape: tuple):
             disturbed_buf = resample_to(disturbed_buf, target_shape)
             continuity[disturbed_buf > 0.1] *= 0.7
             print(f"  + Tidsvagd: decay-halvtid {15} ar (nyligen avverkad=lag, gammal=hog)")
-            return continuity
 
     # B. Fallback: binärt raster
-    avverk_files = sorted(SKOGSST_DIR.glob("*raster*.tif"))
-    if avverk_files:
+    if continuity is None:
+        avverk_files = sorted(SKOGSST_DIR.glob("*raster*.tif"))
+    else:
+        avverk_files = []
+    if continuity is None and avverk_files:
         print("  Kalla: Skogsstyrelsen avverkningsraster (binart)")
         arr, _ = merge_and_clip(avverk_files)
         continuity = 1.0 - arr.clip(0, 1)
@@ -493,11 +608,10 @@ def build_continuity_index(target_shape: tuple):
         disturbed_buffered = uniform_filter(arr.clip(0, 1), size=3)
         disturbed_buffered = resample_to(disturbed_buffered, target_shape)
         continuity[disturbed_buffered > 0.1] *= 0.6
-        return continuity
 
     # C. Fallback: om GEE-export med NDVI std finns
-    gee_files = list(S2_EXPORT_DIR.glob("*Delindex*.tif"))
-    if gee_files:
+    gee_files = list(S2_EXPORT_DIR.glob("*Delindex*.tif")) if continuity is None else []
+    if continuity is None and gee_files:
         print("  Kalla: GEE NDVI-stabilitet (band 5 = NDVI std)")
         with rasterio.open(gee_files[0]) as src:
             if src.count >= 5:
@@ -505,10 +619,36 @@ def build_continuity_index(target_shape: tuple):
                 ndvi_med_band = src.read(4).astype(float)
                 cv = ndvi_std_band / (np.abs(ndvi_med_band) + 0.001)
                 cont = (cv * -1 + cv.max()) / (cv.max() + 0.001)
-                return resample_to(normalize(cont), target_shape)
+                continuity = resample_to(normalize(cont), target_shape)
 
-    print("  [VARNING] Ingen kontinuitetsdata – anvander neutralt 0.5")
-    return np.full(target_shape, 0.5)
+    if continuity is None:
+        print("  [VARNING] Ingen kontinuitetsdata – anvander neutralt 0.5")
+        continuity = np.full(target_shape, 0.5)
+
+    # SLU skogsålder 2025 (tall + gran) – robust ålderskomplement
+    pine_age = SLU_SKOGSALDER_DIR / "PINE_AGE_2025.tif"
+    spruce_age = SLU_SKOGSALDER_DIR / "SPRUCE_AGE_2025.tif"
+    if pine_age.exists() or spruce_age.exists():
+        try:
+            age_layers = []
+            for p in [pine_age, spruce_age]:
+                if not p.exists():
+                    continue
+                out = try_clip_and_read(p, crs_is_sweref=True)
+                if out is None:
+                    continue
+                age_arr, _ = out
+                age_arr = np.where(np.isfinite(age_arr) & (age_arr > 0), age_arr, np.nan)
+                age_arr = resample_to(np.nan_to_num(age_arr, nan=0.0), target_shape)
+                age_layers.append(normalize(age_arr, p_lo=5, p_hi=95))
+            if age_layers:
+                age_comp = np.max(np.stack(age_layers, axis=0), axis=0)
+                continuity = np.clip(continuity * 0.82 + age_comp * 0.18, 0, 1)
+                print("  + SLU skogsalder-komponent applicerad (18 % blend)")
+        except Exception as e:
+            print(f"  [VARNING] Skogsalderlager kunde inte användas: {e}")
+
+    return continuity
 
 
 # ── 3. Fuktindex ─────────────────────────────────────────────────────────────
@@ -518,6 +658,7 @@ def build_continuity_index(target_shape: tuple):
 #   B. NMD-våtmark + topografi           — komplement
 
 def build_moisture_index(target_shape: tuple):
+    moisture = None
     # A. Lantmäteriet Höjddata
     lm_files = sorted(LM_DIR.glob("*.tif"))
     if lm_files:
@@ -541,26 +682,71 @@ def build_moisture_index(target_shape: tuple):
             wetland = resample_to(wetland, target_shape)
             moisture = moisture * 0.7 + wetland * 0.3
 
-        return moisture
+        # fortsätt med optional torvkarta
 
     # B. Fallback: NMD-våtmark + generisk topografi
-    if NMD_BASSKIKT.exists():
+    if moisture is None and NMD_BASSKIKT.exists():
         print("  Kalla: NMD vatmark (fuktproxy)")
         nmd, _ = clip_and_read(NMD_BASSKIKT, crs_is_sweref=True)
         wetland = np.isin(nmd.astype(int), NMD_WETLAND_CLASSES).astype(float)
-        return resample_to(normalize(wetland + 0.1), target_shape)
+        moisture = resample_to(normalize(wetland + 0.1), target_shape)
 
     # C. Fallback: Copernicus DEM (global, alltid tillgänglig)
-    dem_files = sorted(DEM_FALLBACK_DIR.glob("*.tif"))
-    if dem_files:
+    dem_files = sorted(DEM_FALLBACK_DIR.glob("*.tif")) if moisture is None else []
+    if moisture is None and dem_files:
         print("  Kalla: Copernicus DEM (global fallback)")
         dem, _ = merge_and_clip(dem_files, crs_is_sweref=False)
         dem[dem < -1000] = np.nan
         twi = compute_twi(dem, cell_m=30.0)
-        return resample_to(normalize(twi), target_shape)
+        moisture = resample_to(normalize(twi), target_shape)
 
-    print("  [VARNING] Ingen hojddata – fuktindex satt till 0.5")
-    return np.full(target_shape, 0.5)
+    if moisture is None:
+        print("  [VARNING] Ingen hojddata – fuktindex satt till 0.5")
+        moisture = np.full(target_shape, 0.5)
+
+    # SLU torvkarta 1.0 – förbättrar hydro/organogena marker
+    peat_cont = SLU_PEAT_DIR / "PeatMap.tif"
+    peat_class = SLU_PEAT_DIR / "ClassifiedPeatMap.tif"
+    if peat_cont.exists() or peat_class.exists():
+        try:
+            peat_comp = np.zeros(target_shape, dtype=float)
+            used = False
+            if peat_cont.exists():
+                out = try_clip_and_read(peat_cont, crs_is_sweref=True)
+                if out is not None:
+                    peat_arr, _ = out
+                    peat_arr = np.where(np.isfinite(peat_arr), peat_arr, np.nan)
+                    peat_arr = resample_to(np.nan_to_num(peat_arr, nan=0.0), target_shape)
+                    peat_comp += normalize(peat_arr, p_lo=5, p_hi=95) * 0.75
+                    used = True
+            if peat_class.exists():
+                out = try_clip_and_read(peat_class, crs_is_sweref=True)
+                if out is not None:
+                    peat_cls, _ = out
+                    peat_cls = resample_to(np.nan_to_num(peat_cls, nan=0.0), target_shape)
+                    peat_comp += normalize(peat_cls, p_lo=0, p_hi=100) * 0.25
+                    used = True
+            if used:
+                moisture = np.clip(moisture * 0.8 + peat_comp * 0.2, 0, 1)
+                print("  + SLU torvkarta-komponent applicerad (20 % blend)")
+        except Exception as e:
+            print(f"  [VARNING] Torvkartelager kunde inte användas: {e}")
+
+    carb_path = _pick_slu_carbon_stock_tif()
+    if carb_path is not None:
+        try:
+            out = try_clip_and_read(carb_path, crs_is_sweref=True)
+            if out is not None:
+                c_arr, _ = out
+                c_arr = np.where(np.isfinite(c_arr) & (c_arr > -1e6), c_arr, np.nan)
+                c_arr = resample_to(np.nan_to_num(c_arr, nan=0.0), target_shape)
+                c_norm = normalize(c_arr, p_lo=5, p_hi=95)
+                moisture = np.clip(moisture * 0.88 + c_norm * 0.12, 0, 1)
+                print(f"  + SLU kol (lager: {carb_path.name}) — 12 % blend i fuktindex")
+        except Exception as e:
+            print(f"  [VARNING] SLU kol-lager kunde inte användas: {e}")
+
+    return moisture
 
 
 # ── Huvudfunktion ─────────────────────────────────────────────────────────────

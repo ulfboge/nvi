@@ -2,11 +2,11 @@
 hotspot_model.py
 Klassificerar NVI-poäng till hotspot-karta (4 klasser, SS 199000:2023) och genererar figurer.
 
-Klasser (SS 199000:2023-kompatibel logik):
-  4 = Mycket högt naturvärde  → intensiv inventering (alla artgrupper)
-  3 = Högt naturvärde         → noggrann inventering
-  2 = Påtagligt naturvärde    → stickprov
-  1 = Visst naturvärde        → snabb verifiering
+Klasser (SS 199000:2023 – samma numrering som standarden och fältrapporter):
+  1 = Mycket högt naturvärde  → intensiv inventering (alla artgrupper)
+  2 = Högt naturvärde         → noggrann inventering
+  3 = Påtagligt naturvärde    → stickprov
+  4 = Visst naturvärde        → snabb verifiering
 
 Kör:
   python scripts/python/hotspot_model.py
@@ -34,60 +34,59 @@ except ImportError:
 def classify_hotspots(score: np.ndarray) -> tuple[np.ndarray, float, float, float]:
     """Percentilbaserad 4-klassklassificering (SS 199000:2023) med absoluta golv.
 
-    Trösklarna (p25 / p75 / p93) ger ungefär:
-      klass 4 (Mycket högt) ≈ topp  7 % av skogsmark  → intensiv inventering
-      klass 3 (Högt)        ≈ nästa 18 %               → noggrann inventering
-      klass 2 (Påtagligt)   ≈ nästa 50 %               → stickprov
-      klass 1 (Visst)       ≈ nedre 25 %               → snabb verifiering
+    Numrering följer SS 199000:2023 och Länsstyrelsens fältrapporter direkt:
+      klass 1 (Mycket högt) ≈ topp  7 % av skogsmark  → intensiv inventering
+      klass 2 (Högt)        ≈ nästa 18 %               → noggrann inventering
+      klass 3 (Påtagligt)   ≈ nästa 50 %               → stickprov
+      klass 4 (Visst)       ≈ nedre 25 %               → snabb verifiering
 
     Absoluta golv förhindrar att låg-poängsytor (t.ex. granplantager)
-    klassas upp enbart av sin relativa rank. Golven för klass 3/4 är
-    satta striktare för att motverka systematisk överskattning:
-      MIN_KLASS2 = 0.38 – minst 38 % av maxpoäng för klass 2
-      MIN_KLASS3 = 0.72 – minst 72 % för klass 3 (Högt)
-      MIN_KLASS4 = 0.85 – minst 85 % för klass 4 (Mycket högt)
+    klassas upp enbart av sin relativa rank:
+      MIN_KLASS3 = 0.38 – minst 38 % av maxpoäng för klass 3 (Påtagligt)
+      MIN_KLASS2 = 0.72 – minst 72 % för klass 2 (Högt)
+      MIN_KLASS1 = 0.85 – minst 85 % för klass 1 (Mycket högt)
     """
     valid = score[score > 0]
     p25 = float(np.percentile(valid, 25))
     p75 = float(np.percentile(valid, 75))
     p93 = float(np.percentile(valid, 93))
 
-    MIN_KLASS2 = 0.38
-    MIN_KLASS3 = 0.72
-    MIN_KLASS4 = 0.85
-    p25 = max(p25, MIN_KLASS2)
-    p75 = max(p75, MIN_KLASS3)
-    p93 = max(p93, MIN_KLASS4)
+    MIN_KLASS3 = 0.38
+    MIN_KLASS2 = 0.72
+    MIN_KLASS1 = 0.85
+    p25 = max(p25, MIN_KLASS3)
+    p75 = max(p75, MIN_KLASS2)
+    p93 = max(p93, MIN_KLASS1)
 
     cls = np.zeros_like(score, dtype=np.uint8)
-    cls[score > 0]    = 1   # Visst naturvärde
-    cls[score > p25]  = 2   # Påtagligt naturvärde
-    cls[score > p75]  = 3   # Högt naturvärde
-    cls[score > p93]  = 4   # Mycket högt naturvärde
+    cls[score > 0]    = 4   # Visst naturvärde
+    cls[score > p25]  = 3   # Påtagligt naturvärde
+    cls[score > p75]  = 2   # Högt naturvärde
+    cls[score > p93]  = 1   # Mycket högt naturvärde
 
     print(f"  Trosklar: p25={p25:.3f}  p75={p75:.3f}  p93={p93:.3f}")
-    print(f"  (golv klass2>={MIN_KLASS2}, klass3>={MIN_KLASS3}, klass4>={MIN_KLASS4})")
+    print(f"  (golv klass3>={MIN_KLASS3}, klass2>={MIN_KLASS2}, klass1>={MIN_KLASS1})")
     return cls, p25, p75, p93
 
 
 def apply_patch_filter(cls: np.ndarray, pixel_size_m: float,
                        min_ha: float = 0.5) -> np.ndarray:
-    """Nedgraderar isolerade klasser 2–3 som är för små för fältinventering.
+    """Nedgraderar isolerade höga klasser som är för små för fältinventering.
 
     Sammanhängande pixelgrupper (4-konnektivitet) under min_ha hectar
-    degraderas ett steg: klass 3→2, klass 2→1.
-    Klass 1 påverkas inte – låg prioritet behöver inget minimimått.
+    degraderas ett steg (mot lägre värde = högre siffra): klass 1→2, 2→3, 3→4.
+    Klass 4 (Visst) påverkas inte – låg prioritet behöver inget minimimått.
     """
     min_pixels = max(1, int(min_ha * 10_000 / pixel_size_m**2))
     result = cls.copy()
 
-    for k in [4, 3, 2]:
+    for k in [1, 2, 3]:   # klass 1=Mycket högt → 2=Högt → 3=Påtagligt
         mask = (cls == k).astype(np.uint8)
         labeled, n_features = _label(mask)
         for i in range(1, n_features + 1):
             patch = labeled == i
             if patch.sum() < min_pixels:
-                result[patch] = k - 1   # degradera ett steg
+                result[patch] = k + 1   # degradera ett steg (högre siffra = lägre värde)
 
     n_degraded = int(np.sum(result != cls))
     print(f"  Patchfilter ({min_ha} ha): {n_degraded} pixlar nedgraderade")
@@ -100,13 +99,13 @@ def area_statistics(cls: np.ndarray, pixel_size_m: float = 30.0) -> None:
     px_ha = pixel_size_m**2 / 10_000
     total = int(np.sum(cls > 0))
     labels = {
-        4: "Mycket högt naturvärde (intensiv inv.)",
-        3: "Högt naturvärde (noggrann inv.)",
-        2: "Påtagligt naturvärde (stickprov)",
-        1: "Visst naturvärde (snabb verif.)",
+        1: "Mycket högt naturvärde (intensiv inv.)",
+        2: "Högt naturvärde (noggrann inv.)",
+        3: "Påtagligt naturvärde (stickprov)",
+        4: "Visst naturvärde (snabb verif.)",
     }
     print("\n  Areal per klass (SS 199000:2023):")
-    for k in [4, 3, 2, 1]:
+    for k in [1, 2, 3, 4]:
         n = int(np.sum(cls == k))
         ha = n * px_ha
         pct = 100 * n / total if total > 0 else 0
@@ -122,8 +121,9 @@ def plot_results(cls: np.ndarray, score: np.ndarray, indices: dict) -> None:
         fontsize=14, fontweight='bold', y=0.98
     )
 
-    # Färgschema – 4 klasser (SS 199000:2023)
-    class_cmap = mcolors.ListedColormap(['#d1e5f0', '#fdae61', '#d73027', '#7b0012'])
+    # Färgschema – klass 1=Mycket högt (mörkröd) → klass 4=Visst (ljusblå)
+    # Följer SS 199000:2023 numrering direkt
+    class_cmap = mcolors.ListedColormap(['#7b0012', '#d73027', '#fdae61', '#d1e5f0'])
     class_norm = mcolors.BoundaryNorm([0.5, 1.5, 2.5, 3.5, 4.5], 4)
 
     # ── Hotspot-karta (stor, vänster) ──
@@ -133,10 +133,10 @@ def plot_results(cls: np.ndarray, score: np.ndarray, indices: dict) -> None:
     ax1.set_title('NVI-klassificering  (SS 199000:2023)', fontsize=12, fontweight='bold')
     ax1.axis('off')
     patches = [
-        mpatches.Patch(color='#7b0012', label='Klass 4 – Mycket högt'),
-        mpatches.Patch(color='#d73027', label='Klass 3 – Högt'),
-        mpatches.Patch(color='#fdae61', label='Klass 2 – Påtagligt'),
-        mpatches.Patch(color='#d1e5f0', label='Klass 1 – Visst'),
+        mpatches.Patch(color='#7b0012', label='Klass 1 – Mycket högt'),
+        mpatches.Patch(color='#d73027', label='Klass 2 – Högt'),
+        mpatches.Patch(color='#fdae61', label='Klass 3 – Påtagligt'),
+        mpatches.Patch(color='#d1e5f0', label='Klass 4 – Visst'),
     ]
     ax1.legend(handles=patches, loc='lower left', fontsize=9)
 

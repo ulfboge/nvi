@@ -10,16 +10,15 @@ load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 # ── Aktivt AOI – byt kommentar för att växla område ─────────────────────────
 
-# Djupedal, Hisingen, Göteborg – NVI utförd av Länsstyrelsen Västra Götaland
-# (Rapport 2022:42, Svensk Naturförvaltning AB). Ekdominerad blandskog, ca 113 ha
-# inventerad yta. Klass 2: 43 ha, Klass 3: 56 ha. Bra valideringsfall.
-AOI_NAME  = "djupedal_hisingen"
-AOI_LABEL = "Djupedal, Hisingen, Göteborg"
+# Kungsbacka västra – AOI härledd från inläst kommunal NVI (GPKG)
+# Fil: data/raw/gpkg/Naturvärdesinventering västra Kungsbacka kommun.gpkg
+AOI_NAME  = "kungsbacka_vastra"
+AOI_LABEL = "Västra Kungsbacka kommun"
 AOI_BBOX = {
-    "min_lon": 11.935,
-    "max_lon": 11.973,
-    "min_lat": 57.806,
-    "max_lat": 57.828,
+    "min_lon": 11.902579,
+    "max_lon": 12.05595,
+    "min_lat": 57.362614,
+    "max_lat": 57.565004,
 }
 
 # Fiby urskog, Uppland – välkänd gammelskog, ursprungligt testfall
@@ -54,8 +53,12 @@ ARTER_DERIVED_DIR  = ARTER_ROOT / "derived"
 SPECIES_AOI_BUFFER_M = 5000
 
 # Svenska datakällor
-_NMD_ROOT        = Path("E:/nmd")
-NMD_DIR          = _NMD_ROOT                   # Naturvårdsverket NMD (marktäcke 10m) – extern disk
+# NMD ligger på E:; repot använder junction data/raw/nmd -> E:\nmd (skapa med:
+#   cmd /c 'rmdir /s /q data\raw\nmd'  (om tom felaktig mapp)
+#   cmd /c 'mklink /J data\raw\nmd E:\nmd'
+# Alternativ: sätt _NMD_ROOT = Path("E:/nmd") om du inte vill använda junction.
+_NMD_ROOT        = RAW_DIR / "nmd"
+NMD_DIR          = _NMD_ROOT                   # Naturvårdsverket NMD (marktäcke 10m)
 NMD_BASSKIKT     = _NMD_ROOT / "NMD2023_basskikt_v2_1"        / "NMD2023bas_v2_1.tif"
 NMD_OBJHOJD      = _NMD_ROOT / "NMD2023_Tillaggsskikt_Objekthojd_objekttackning_v1_1" / "NMD2023_Objekt_hojd_intervall_5_till_45_v1_1.tif"
 NMD_TRADSLAG_DIR = _NMD_ROOT / "NMD2023_Tradslag_v1_0"
@@ -94,6 +97,24 @@ LM_UTFALL_LASER_SKOG_URL = os.environ.get(
 )
 SLU_DIR          = RAW_DIR / "slu"            # SLU Skogliga Grunddata
 S2_EXPORT_DIR    = RAW_DIR / "gee_exports"    # GEE-exporterade GeoTIFF:er
+# SLU GIS-support kompletterande lager (fria nedladdningar)
+SLU_GIS_DIR = RAW_DIR / "slu_gis"
+SLU_SKOGSALDER_DIR = SLU_GIS_DIR / "skogsalder_2025"
+SLU_LICHEN_DIR = SLU_GIS_DIR / "lichenindicator_2025"
+# Torvkarta: junction data/raw/slu_gis/peat_1_0 -> E:\slu_gis\peat_1_0 (samma mönster som NMD)
+SLU_PEAT_DIR = SLU_GIS_DIR / "peat_1_0"
+# Stora SLU-raster (Skogskarta 2018, kol 2023): standard E:/slu_gis om E: finns, annars under slu_gis/.
+# Överstyr med miljövariabel SLU_GIS_LARGE_ROOT (t.ex. D:/slu_data).
+_slroot_env = os.environ.get("SLU_GIS_LARGE_ROOT", "").strip()
+if _slroot_env:
+    SLU_GIS_LARGE_ROOT = Path(_slroot_env)
+else:
+    _e_drive = Path("E:/")
+    SLU_GIS_LARGE_ROOT = (_e_drive / "slu_gis") if _e_drive.exists() else SLU_GIS_DIR
+# SLU Skogskarta (2018): andelstif — hämtas med download_data.py --slu-forest-map-confirm
+SLU_FOREST_MAP_DIR = SLU_GIS_LARGE_ROOT / "slu_forest_map_2018"
+# SLU Carbon (2023): zip från gis.slu.se — packas upp hit (--slu-carbon-confirm)
+SLU_CARBON_DIR = SLU_GIS_LARGE_ROOT / "carbon_2023"
 # Naturvårdsverket – skyddad natur (INSPIRE Protected Sites, WFS)
 NATURVARDSVERKET_DIR = RAW_DIR / "naturvardsverket"
 PROTECTED_SITES_DIR  = NATURVARDSVERKET_DIR / "skyddad_natur"
@@ -105,6 +126,8 @@ NNK_DIR = NATURVARDSVERKET_DIR / "nnk"
 NNK_LAN = "O"
 
 for d in [NMD_DIR, SKOGSST_DIR, LM_DIR, LM_LIDAR_LAZ_DIR, SLU_DIR, S2_EXPORT_DIR,
+          SLU_GIS_DIR, SLU_GIS_LARGE_ROOT, SLU_SKOGSALDER_DIR, SLU_LICHEN_DIR, SLU_PEAT_DIR,
+          SLU_FOREST_MAP_DIR, SLU_CARBON_DIR,
           NATURVARDSVERKET_DIR, PROTECTED_SITES_DIR, NNK_DIR,
           PROC_DIR, FIGURES_DIR, RASTERS_DIR, SPECIES_OUTPUT_DIR,
           ARTER_OBS_DIR, ARTER_RODLISTA_DIR, ARTER_DERIVED_DIR]:

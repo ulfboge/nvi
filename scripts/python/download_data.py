@@ -23,6 +23,8 @@ Kör:
   python scripts/python/download_data.py --protected-sites
   python scripts/python/download_data.py --forest-laz-confirm   # Skogslaser LAZ (stort)
   python scripts/python/download_data.py --nh-laz-confirm       # NH LAZ via STAC om mojligt
+  python scripts/python/download_data.py --slu-forest-map-confirm   # SLU Skogskarta 2018 (E: eller SLU_GIS_LARGE_ROOT)
+  python scripts/python/download_data.py --slu-carbon-confirm       # SLU kol 2023 (zip + uppackning)
 """
 
 import sys
@@ -30,7 +32,10 @@ import math
 import json
 import ftplib
 import argparse
+import shutil
+import tempfile
 import urllib.parse
+import zipfile
 from io import BytesIO
 from pathlib import Path
 
@@ -42,6 +47,9 @@ from config import (
     SKOGSST_DIR,
     LM_DIR,
     SLU_DIR,
+    SLU_FOREST_MAP_DIR,
+    SLU_CARBON_DIR,
+    SLU_GIS_LARGE_ROOT,
     PROTECTED_SITES_DIR,
     NNK_DIR,
     NNK_LAN,
@@ -1293,6 +1301,103 @@ def download_lantmateriet_nh_laz(*, confirm: bool = False) -> None:
         print(f"  [FEL] {e}")
 
 
+# ── SLU Skogskarta 2018 + kol 2023 (stora filer → standard E:/slu_gis, se config) ─
+
+SLU_FMAP_DATA_BASE = "https://gis.slu.se/data/slu_forest_map/2018/data"
+SLU_CARBON_2023_BASE = "https://gis.slu.se/data/carbon/2023"
+
+# (filnamn, ungefärlig storlek för info)
+SLU_FMAP_DEFAULT_FILES = [
+    ("Ek_andel.tif", "~352 MB"),
+    ("Bok_andel.tif", "~142 MB"),
+]
+SLU_FMAP_OVRLOV = ("OvrLov_andel.tif", "~1.1 GB")
+
+SLU_CARBON_ZIP_CHOICES = {
+    "stock_soc": ("Stock_SOC.zip", "~1.0 GB"),
+    "stock_dom": ("Stock_DOM.zip", "~2.1 GB"),
+}
+
+
+def download_slu_forest_map(
+    confirm: bool,
+    *,
+    include_ovrlov: bool = False,
+    overwrite: bool = False,
+) -> None:
+    print("\n[SLU Skogskarta 2018 – trädslagsandelar]")
+    print(f"  Målmapp: {SLU_FOREST_MAP_DIR}")
+    print(f"  Rot (SLU_GIS_LARGE_ROOT): {SLU_GIS_LARGE_ROOT}")
+    if not confirm:
+        print(
+            "  Hoppar över (stora GeoTIFF). Kör med --slu-forest-map-confirm.\n"
+            "  Standardfiler: Ek + Bok. Lägg till OvrLov med --slu-forest-map-include-ovrlov (~1.1 GB extra)."
+        )
+        return
+
+    SLU_FOREST_MAP_DIR.mkdir(parents=True, exist_ok=True)
+    todo = list(SLU_FMAP_DEFAULT_FILES)
+    if include_ovrlov:
+        todo.append(SLU_FMAP_OVRLOV)
+    for fname, approx in todo:
+        url = f"{SLU_FMAP_DATA_BASE}/{fname}"
+        dest = SLU_FOREST_MAP_DIR / fname
+        print(f"  ({approx})")
+        download_file(url, dest, overwrite=overwrite, timeout=(120, 14_400))
+
+
+def download_slu_carbon(
+    confirm: bool,
+    *,
+    product: str = "stock_soc",
+    overwrite: bool = False,
+) -> None:
+    print("\n[SLU Kol 2023 – markkol (zip)]")
+    print(f"  Målmapp: {SLU_CARBON_DIR}")
+    print(f"  Rot (SLU_GIS_LARGE_ROOT): {SLU_GIS_LARGE_ROOT}")
+    if not confirm:
+        print(
+            "  Hoppar över (zip ~1–2 GB). Kör med --slu-carbon-confirm.\n"
+            "  Välj zip med --slu-carbon-product stock_soc|stock_dom (standard: stock_soc)."
+        )
+        return
+
+    if product not in SLU_CARBON_ZIP_CHOICES:
+        print(f"  [FEL] Okänd --slu-carbon-product: {product}")
+        return
+
+    zip_name, approx = SLU_CARBON_ZIP_CHOICES[product]
+    url = f"{SLU_CARBON_2023_BASE}/{zip_name}"
+    SLU_CARBON_DIR.mkdir(parents=True, exist_ok=True)
+    zip_dest = SLU_CARBON_DIR / zip_name
+    print(f"  Hämtar {zip_name} ({approx}) …")
+    if not download_file(url, zip_dest, overwrite=overwrite, timeout=(120, 14_400)):
+        return
+
+    print("  Packar upp *.tif från zip …")
+    with tempfile.TemporaryDirectory(dir=str(SLU_CARBON_DIR)) as tmp:
+        tmp_path = Path(tmp)
+        try:
+            with zipfile.ZipFile(zip_dest, "r") as zf:
+                zf.extractall(tmp_path)
+        except zipfile.BadZipFile as e:
+            print(f"  [FEL] Zip trasig: {e}")
+            return
+        n_out = 0
+        for p in sorted(tmp_path.rglob("*.tif")):
+            if not p.is_file():
+                continue
+            dest = SLU_CARBON_DIR / p.name
+            if dest.exists() and not overwrite:
+                print(f"  [skip] {p.name} (finns redan)")
+                continue
+            shutil.copy2(p, dest)
+            mb = dest.stat().st_size / 1_000_000
+            print(f"  [ok]   {dest.name}  ({mb:.0f} MB)")
+            n_out += 1
+    print(f"  [klar] {n_out} GeoTIFF(er) kopierade till {SLU_CARBON_DIR}")
+
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
@@ -1341,6 +1446,42 @@ def main():
         action="store_true",
         help="Kor endast NH LAZ-nedladdning (kräver --nh-laz-confirm)",
     )
+    parser.add_argument(
+        "--slu-forest-map-confirm",
+        action="store_true",
+        help="Ladda SLU Skogskarta 2018 (Ek+Bok; stort — sparas under SLU_GIS_LARGE_ROOT)",
+    )
+    parser.add_argument(
+        "--slu-forest-map-include-ovrlov",
+        action="store_true",
+        help="Aven OvrLov_andel.tif (~1.1 GB extra)",
+    )
+    parser.add_argument(
+        "--slu-forest-map-only",
+        action="store_true",
+        help="Kor endast Skogskarta-nedladdning (kräver --slu-forest-map-confirm)",
+    )
+    parser.add_argument(
+        "--slu-carbon-confirm",
+        action="store_true",
+        help="Ladda SLU kol 2023 zip och packa upp .tif (stort — SLU_GIS_LARGE_ROOT)",
+    )
+    parser.add_argument(
+        "--slu-carbon-product",
+        choices=list(SLU_CARBON_ZIP_CHOICES.keys()),
+        default="stock_soc",
+        help="Vilken zip fran carbon/2023 (standard: stock_soc)",
+    )
+    parser.add_argument(
+        "--slu-carbon-only",
+        action="store_true",
+        help="Kor endast kol-nedladdning (kräver --slu-carbon-confirm)",
+    )
+    parser.add_argument(
+        "--slu-gis-overwrite",
+        action="store_true",
+        help="Skriv om befintliga SLU-GIS-filer (skogskarta + kol)",
+    )
     args = parser.parse_args()
 
     print("=" * 60)
@@ -1365,6 +1506,30 @@ def main():
         print("\n[klar] Nedladdning avslutad.")
         return
 
+    if args.slu_forest_map_only:
+        if not args.slu_forest_map_confirm:
+            print("\n[FEL] --slu-forest-map-only kräver --slu-forest-map-confirm")
+            sys.exit(1)
+        download_slu_forest_map(
+            True,
+            include_ovrlov=args.slu_forest_map_include_ovrlov,
+            overwrite=args.slu_gis_overwrite,
+        )
+        print("\n[klar] Nedladdning avslutad.")
+        return
+
+    if args.slu_carbon_only:
+        if not args.slu_carbon_confirm:
+            print("\n[FEL] --slu-carbon-only kräver --slu-carbon-confirm")
+            sys.exit(1)
+        download_slu_carbon(
+            True,
+            product=args.slu_carbon_product,
+            overwrite=args.slu_gis_overwrite,
+        )
+        print("\n[klar] Nedladdning avslutad.")
+        return
+
     download_nmd(confirm=args.nmd_confirm)
     download_skogsstyrelsen()
     download_nyckelbiotoper()
@@ -1377,6 +1542,19 @@ def main():
         download_protected_sites(
             expand_deg=args.protected_expand_deg,
             overwrite=args.protected_sites_overwrite,
+        )
+
+    if args.slu_forest_map_confirm:
+        download_slu_forest_map(
+            True,
+            include_ovrlov=args.slu_forest_map_include_ovrlov,
+            overwrite=args.slu_gis_overwrite,
+        )
+    if args.slu_carbon_confirm:
+        download_slu_carbon(
+            True,
+            product=args.slu_carbon_product,
+            overwrite=args.slu_gis_overwrite,
         )
 
     print("\n[klar] Nedladdning avslutad.")

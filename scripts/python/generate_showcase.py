@@ -26,7 +26,15 @@ from pyproj import Transformer
 from shapely.geometry import box
 
 sys.path.insert(0, str(Path(__file__).parent))
-from config import AOI_NAME, AOI_LABEL, PROC_DIR, PROTECTED_SITES_DIR, RASTERS_DIR
+from config import (
+    AOI_BBOX,
+    AOI_NAME,
+    AOI_LABEL,
+    EPSG_SWEREF,
+    PROC_DIR,
+    PROTECTED_SITES_DIR,
+    RASTERS_DIR,
+)
 
 try:
     import geopandas as gpd
@@ -38,6 +46,7 @@ DOCS_ASSETS.mkdir(parents=True, exist_ok=True)
 
 try:
     import rasterio
+    from rasterio.errors import CRSError
     from rasterio.warp import transform_bounds
 except ImportError:
     sys.exit("Saknar rasterio – kor: pip install rasterio")
@@ -79,16 +88,29 @@ def _add_overview_inset(ax_parent, tif_path: Path) -> None:
         b = src.bounds
         crs = src.crs
 
-    # AOI i Web Mercator (röd ram)
-    left, bottom, right, top = transform_bounds(
-        crs, "EPSG:3857", b.left, b.bottom, b.right, b.top
-    )
+    # AOI i Web Mercator (röd ram). Vid trasig PROJ/raster-CRS: använd config AOI_BBOX (WGS84).
+    try:
+        left, bottom, right, top = transform_bounds(
+            crs, "EPSG:3857", b.left, b.bottom, b.right, b.top
+        )
+        lon_w, lat_s, lon_e, lat_n = transform_bounds(
+            crs, "EPSG:4326", b.left, b.bottom, b.right, b.top
+        )
+    except (CRSError, ValueError, Exception) as exc:
+        try:
+            lon_w = float(AOI_BBOX["min_lon"])
+            lat_s = float(AOI_BBOX["min_lat"])
+            lon_e = float(AOI_BBOX["max_lon"])
+            lat_n = float(AOI_BBOX["max_lat"])
+            t3857 = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
+            left, bottom = t3857.transform(lon_w, lat_s)
+            right, top = t3857.transform(lon_e, lat_n)
+        except Exception:
+            print(f"  [info] Översiktskarta utelämnad (CRS/PROJ: {exc})")
+            return
     w, h = right - left, top - bottom
 
-    # Expanderat utsnitt i WGS84 så Uppsala–Enköping–Sala m.m. ryms (tydligare läge)
-    lon_w, lat_s, lon_e, lat_n = transform_bounds(
-        crs, "EPSG:4326", b.left, b.bottom, b.right, b.top
-    )
+    # Expanderat utsnitt i WGS84 (större kontext kring AOI)
     clon = (lon_w + lon_e) / 2.0
     clat = (lat_s + lat_n) / 2.0
     half_lon_aoi = (lon_e - lon_w) / 2.0
@@ -134,15 +156,23 @@ def _add_overview_inset(ax_parent, tif_path: Path) -> None:
         )
     )
 
-    # Orter i Uppland / Mälardalen (WGS84) – ungefärliga centrum
-    places = [
-        ("Uppsala", 17.6389, 59.8586),
-        ("Enköping", 17.0778, 59.6353),
-        ("Sala", 16.6066, 59.9201),
-        ("Örsundsbro", 17.2990, 59.7300),
-        ("Knutby", 18.1680, 59.9180),
-        ("Morgongåva", 17.1390, 59.8720),
-    ]
+    # Orter nära AOI (WGS84) – västkust vs Mälardalen
+    if clon < 14.0 and clat < 58.2:
+        places = [
+            ("Göteborg", 11.9746, 57.7089),
+            ("Kungsbacka", 12.0696, 57.4872),
+            ("Varberg", 12.2503, 57.1057),
+            ("Halmstad", 12.8558, 56.6745),
+        ]
+    else:
+        places = [
+            ("Uppsala", 17.6389, 59.8586),
+            ("Enköping", 17.0778, 59.6353),
+            ("Sala", 16.6066, 59.9201),
+            ("Örsundsbro", 17.2990, 59.7300),
+            ("Knutby", 18.1680, 59.9180),
+            ("Morgongåva", 17.1390, 59.8720),
+        ]
     xl0, xl1 = ax_in.get_xlim()
     yl0, yl1 = ax_in.get_ylim()
     xspan = xl1 - xl0
@@ -219,8 +249,8 @@ def make_hotspot_figure() -> None:
     # ── Hotspot-karta (stor, vänster) ─────────────────────────────────────────
     ax_main = fig.add_subplot(gs[:, :2])
 
-    cmap_cls = mcolors.ListedColormap(["#4575b4", "#fee090", "#d73027"])
-    norm_cls = mcolors.BoundaryNorm([0.5, 1.5, 2.5, 3.5], 3)
+    cmap_cls = mcolors.ListedColormap(["#7b0012", "#d73027", "#fdae61", "#d1e5f0"])
+    norm_cls = mcolors.BoundaryNorm([0.5, 1.5, 2.5, 3.5, 4.5], 4)
 
     ax_main.imshow(
         np.where(cls > 0, cls, np.nan),
@@ -230,7 +260,7 @@ def make_hotspot_figure() -> None:
         aspect="equal",
     )
     ax_main.set_title(
-        "Hotspot-klassifikation\n(nationell geodata)",
+        "NVI-klassificering\n(SS 199000:2023)",
         fontsize=12,
         fontweight="bold",
         pad=8,
@@ -241,9 +271,10 @@ def make_hotspot_figure() -> None:
     _add_overview_inset(ax_main, _hotspot_class_path())
 
     legend_patches = [
-        mpatches.Patch(color="#d73027", label="Klass 3 – Hotspot (intensiv inventering)"),
-        mpatches.Patch(color="#fee090", label="Klass 2 – Mellanklass (stickprov)"),
-        mpatches.Patch(color="#4575b4", label="Klass 1 – Låg prioritet (snabb verif.)"),
+        mpatches.Patch(color="#7b0012", label="Klass 1 – Mycket högt naturvärde"),
+        mpatches.Patch(color="#d73027", label="Klass 2 – Högt naturvärde"),
+        mpatches.Patch(color="#fdae61", label="Klass 3 – Påtagligt naturvärde"),
+        mpatches.Patch(color="#d1e5f0", label="Klass 4 – Visst naturvärde"),
     ]
     ax_main.legend(
         handles=legend_patches,
@@ -251,16 +282,16 @@ def make_hotspot_figure() -> None:
         fontsize=10,
         framealpha=0.92,
         edgecolor="#ccc",
-        title="NVI-prioritet",
+        title="NVI-klass",
         title_fontsize=10,
     )
 
     # ── Delindex (höger, 2x2) ─────────────────────────────────────────────────
     panels = [
         (score,     "NVI-poäng\n(sammansatt)",          "RdYlGn",   0,   1),
-        (structure, "Strukturindex\n(NMD + trädhöjd)",  "YlGn",     0,   1),
-        (cont,      "Kontinuitetsindex\n(Skogsstyrelsen avverk.)", "Blues", 0, 1),
-        (moisture,  "Fuktindex\n(Lantmäteriet lidar-TWI)", "GnBu",  0,   1),
+        (structure, "Strukturindex\n(NMD · valfri SLU lav)", "YlGn", 0, 1),
+        (cont,      "Kontinuitetsindex\n(SkS avverk. · valfri SLU ålder)", "Blues", 0, 1),
+        (moisture,  "Fuktindex\n(Lantmäteriet TWI · valfri SLU torv)", "GnBu", 0, 1),
     ]
 
     for i, (arr, title, cmap, vmin, vmax) in enumerate(panels):
@@ -278,8 +309,8 @@ def make_hotspot_figure() -> None:
     fig.text(
         0.5,
         0.028,
-        "Datakällor: NMD 2023 (Naturvårdsverket)  ·  GSD-Höjddata 1 m (Lantmäteriet)  ·  "
-        "Avverkningsanmälningar (Skogsstyrelsen)",
+        "Datakällor: NMD 2023 (Naturvårdsverket)  ·  Lantmäteriet (höjd/TWI)  ·  "
+        "Skogsstyrelsen  ·  valfritt SLU GIS (torv 1.0, lav, skogsålder — gis.slu.se/data)",
         ha="center",
         fontsize=9,
         color="#555",
@@ -308,9 +339,9 @@ def make_method_diagram() -> None:
     """Enkel processkarta – 6 steg som pil-diagram."""
 
     steps = [
-        ("1", "Geodata-screening", "NMD 2023 · Lidar DTM\nSkogsstyrelsen",  "#2d6a4f"),
-        ("2", "Hotspot-modell",    "Struktur + Kontinuitet\n+ Fukt (viktat)", "#40916c"),
-        ("3", "Sampling-design",   "Stratifiering\nHotspot / Mellan / Låg",  "#52b788"),
+        ("1", "Geodata-screening", "NMD · lidar · SkS\n+ valfritt SLU GIS",  "#2d6a4f"),
+        ("2", "NVI-klassning",     "Struktur + Kontinuitet\n+ Fukt (viktat)", "#40916c"),
+        ("3", "Sampling-design",   "Stratifiering\nKlass 1-4",              "#52b788"),
         ("4", "Fältinventering",   "Riktad NVI\nSignalarter · Substrat",     "#74c69d"),
         ("5", "Kvantifiering",     "Naturvärdesindex\nf(struktur+kont.+art)", "#95d5b2"),
         ("6", "Reproducerbarhet",  "Python · QGIS\nNytt område = ny kör", "#b7e4c7"),
@@ -414,7 +445,15 @@ def make_hotspot_protected_context_figure() -> None:
     if gdf.crs is None:
         print("[skip] hotspot_protected_context.png — GPKG saknar CRS")
         return
-    gdf = gdf.to_crs(crs)
+    try:
+        if not (hasattr(gdf.crs, "to_epsg") and gdf.crs.to_epsg() == EPSG_SWEREF):
+            gdf = gdf.to_crs(epsg=EPSG_SWEREF)
+    except Exception:
+        try:
+            gdf = gdf.to_crs(epsg=EPSG_SWEREF)
+        except Exception as exc:
+            print(f"[skip] hotspot_protected_context.png — CRS ({exc})")
+            return
     view = box(left, bottom, right, top)
     in_view = gdf.geometry.intersects(view)
     n_total = len(gdf)
@@ -430,8 +469,8 @@ def make_hotspot_protected_context_figure() -> None:
     _prot_lw = 2.4
 
     fig, ax = plt.subplots(figsize=(12, 10), facecolor="#f5f7f5")
-    cmap_cls = mcolors.ListedColormap(["#4575b4", "#fee090", "#d73027"])
-    norm_cls = mcolors.BoundaryNorm([0.5, 1.5, 2.5, 3.5], 3)
+    cmap_cls = mcolors.ListedColormap(["#7b0012", "#d73027", "#fdae61", "#d1e5f0"])
+    norm_cls = mcolors.BoundaryNorm([0.5, 1.5, 2.5, 3.5, 4.5], 4)
     ax.imshow(
         np.where(cls > 0, cls, np.nan),
         cmap=cmap_cls,
@@ -454,14 +493,14 @@ def make_hotspot_protected_context_figure() -> None:
     ax.set_ylim(bottom, top)
     ax.set_aspect("equal", adjustable="box")
     ax.set_title(
-        "NVI-prioritet och formellt skyddad natur (kontext)\n"
+        "NVI-klass och formellt skyddad natur (kontext)\n"
         f"{AOI_NAME.replace('_', ' ').title()} — skyddade ytor enligt Naturvårdsverket (INSPIRE)",
         fontsize=13,
         fontweight="bold",
         color="#1b4332",
         pad=12,
     )
-    ax.set_xlabel(f"Östkoordinat (m) · {crs}", fontsize=9, color="#555")
+    ax.set_xlabel(f"Östkoordinat (m) · EPSG:{EPSG_SWEREF}", fontsize=9, color="#555")
     ax.set_ylabel("Nordkoordinat (m)", fontsize=9, color="#555")
     ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, p: f"{x:.0f}"))
     ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, p: f"{x:.0f}"))
@@ -499,9 +538,10 @@ def make_hotspot_protected_context_figure() -> None:
         )
 
     leg = [
-        mpatches.Patch(color="#d73027", label="Klass 3 – Hotspot"),
-        mpatches.Patch(color="#fee090", label="Klass 2 – Mellan"),
-        mpatches.Patch(color="#4575b4", label="Klass 1 – Låg"),
+        mpatches.Patch(color="#7b0012", label="Klass 1 – Mycket högt"),
+        mpatches.Patch(color="#d73027", label="Klass 2 – Högt"),
+        mpatches.Patch(color="#fdae61", label="Klass 3 – Påtagligt"),
+        mpatches.Patch(color="#d1e5f0", label="Klass 4 – Visst"),
         mpatches.Patch(
             facecolor="none",
             edgecolor=_prot_edge,

@@ -43,7 +43,7 @@ All scripts import from `config.py`. Key settings to change when adapting to a n
 
 - `AOI_NAME` — prefix for all output file names
 - `AOI_BBOX` — bounding box in WGS84 (lon/lat)
-- `_NMD_ROOT = Path("E:/nmd")` — NMD data lives on an external drive, not in the repo
+- `_NMD_ROOT` — defaults to `RAW_DIR / "nmd"` (`data/raw/nmd`). NMD is large and usually **not** committed; keep files on another drive and expose them with a **Windows directory junction** from repo root, e.g. `mklink /J data\raw\nmd E:\nmd` (see comments in `config.py`). Or set `_NMD_ROOT = Path("E:/nmd")` to read the drive path directly.
 
 API key for Lantmäteriet goes in `.env` at repo root as `LANTMATERIET_API_KEY`. For **SLU SOS** (Artdatabanken): `SOS_API_BASE` and `SOS_SUBSCRIPTION_KEY`. The `.env` is loaded automatically by `config.py` via `python-dotenv`.
 
@@ -51,9 +51,11 @@ API key for Lantmäteriet goes in `.env` at repo root as `LANTMATERIET_API_KEY`.
 
 | Source | Local path | What it feeds |
 |---|---|---|
-| NMD 2023 Basskikt | `E:/nmd/NMD2023_basskikt_v2_1/NMD2023bas_v2_1.tif` | Strukturindex |
-| NMD Objekthöjd | `E:/nmd/NMD2023_Tillaggsskikt_.../NMD2023_Objekt_hojd_...tif` | Strukturindex |
-| NMD Trädslag | `E:/nmd/NMD2023_Tradslag_v1_0/` | Strukturindex (ädellövsbonus) |
+| NMD 2023 Basskikt | `data/raw/nmd/NMD2023_basskikt_v2_1/NMD2023bas_v2_1.tif` | Strukturindex |
+| NMD Objekthöjd | `data/raw/nmd/NMD2023_Tillaggsskikt_.../NMD2023_Objekt_hojd_...tif` | Strukturindex |
+| NMD Trädslag | `data/raw/nmd/NMD2023_Tradslag_v1_0/` | Strukturindex (ädellövsbonus) |
+| SLU torvkarta (peat, optional) | `data/raw/slu_gis/peat_1_0/ClassifiedPeatMap.tif` | Fuktindex (blend); same junction pattern as NMD |
+| SLU Skogskarta 2018 + kol 2023 (optional) | `E:/slu_gis/...` by default if `E:` exists (`SLU_GIS_LARGE_ROOT` in `.env` to override) | Struktur (andelar) + fukt (kol); `download_data.py --slu-forest-map-confirm` / `--slu-carbon-confirm` |
 | Skogsstyrelsen avverkningar | `data/raw/skogsstyrelsen/` | Kontinuitetsindex |
 | Lantmäteriet lidar DTM | `data/raw/lantmateriet/` | Fuktindex (TWI) |
 | Naturvårdsverket skyddad natur (optional) | `data/raw/naturvardsverket/skyddad_natur/protected_sites_<AOI>.gpkg` | Showcase only (`hotspot_protected_context.png`); not used in NVI weights |

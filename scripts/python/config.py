@@ -8,6 +8,16 @@ from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
+
+def _ensure_proj_environment() -> None:
+    """Undvik extern PROJ/GDAL-krock; använd rasterio-wheelens interna data."""
+    os.environ.pop("PROJ_LIB", None)
+    os.environ.pop("GDAL_DATA", None)
+    os.environ.setdefault("PYPROJ_USE_PROJ_DATA_PACKAGES", "1")
+
+
+_ensure_proj_environment()
+
 # ── Aktivt AOI – byt kommentar för att växla område ─────────────────────────
 
 # Kungsbacka västra – AOI härledd från inläst kommunal NVI (GPKG)

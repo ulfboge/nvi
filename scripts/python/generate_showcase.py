@@ -90,6 +90,9 @@ def _add_overview_inset(ax_parent, tif_path: Path) -> None:
 
     # AOI i Web Mercator (röd ram). Vid trasig PROJ/raster-CRS: använd config AOI_BBOX (WGS84).
     try:
+        crs_str = str(crs).lower() if crs is not None else ""
+        if (crs is None) or ("engineeringcrs" in crs_str) or ("unknown engineering datum" in crs_str):
+            raise ValueError(f"Ej transformbar raster-CRS: {crs}")
         left, bottom, right, top = transform_bounds(
             crs, "EPSG:3857", b.left, b.bottom, b.right, b.top
         )

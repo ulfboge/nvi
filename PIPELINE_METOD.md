@@ -10,7 +10,7 @@ Pipelinen gör följande i ordning:
 
 1. **`download_data.py`** – hämtar (eller förbereder för manuell) geodata inom **AOI** (area of interest), definierad i `config.py`.
 2. **`compute_indices.py`** – klipper raster till AOI, bygger **tre delindex** (struktur, kontinuitet, fukt), normaliserar dem till ungefär **0–1**, viktar ihop dem till **NVI-poäng** (0–1).
-3. **`hotspot_model.py`** – delar in NVI-poäng i **tre prioritetsklasser** med percentiler, sparar klassraster och en diagnostisk PNG i `outputs/`.
+3. **`hotspot_model.py`** – delar in NVI-poäng i **fyrklassig** hotspot-klassning enligt SS 199000:2023 (**klass 1 = Mycket högt … klass 4 = Visst**), sparar klassraster och en diagnostisk PNG i `outputs/`.
 4. **`generate_showcase.py`** – bygger **publika figurer** till `docs/assets/` för sidan (kräver att steg 2–3 körts, samt nätverk för översiktskarta). Kan även skriva **hotspot + skyddad natur** om WFS-data finns (se §3 och §6).
 
 **Viktter** (summa 1,0) i `config.py`:
@@ -28,7 +28,7 @@ Pipelinen gör följande i ordning:
 - **`AOI_NAME`** – filprefix för alla utdata (t.ex. `fiby_urskog`).
 - **`AOI_BBOX`** – rektangel i WGS84 (min/max lon/lat). All klippning mot raster sker mot denna box (omräknad till SWEREF99 TM för svenska data).
 - **`WEIGHTS`** – vikterna ovan.
-- **Sökvägar** – var NMD ligger (ofta extern disk, t.ex. `E:/nmd`), var nedladdningar hamnar (`data/raw/...`), processade raster (`data/processed/`), figurer (`outputs/figures/`), slutliga klassraster (`outputs/rasters/`).
+- **Sökvägar** – NMD: `data/raw/nmd/` (junction till `E:\nmd` vanligt). **Stora SLU-GIS-lager** (Skogskarta 2018, kol 2023): standard **`E:/slu_gis/`** om enheten finns (`slu_forest_map_2018/`, `carbon_2023/`); överstyr med **`SLU_GIS_LARGE_ROOT`** i `.env`. Övriga nedladdningar under `data/raw/...`, processade raster (`data/processed/`), figurer (`outputs/figures/`), slutliga klassraster (`outputs/rasters/`). Torvkarta: `data/raw/slu_gis/peat_1_0/` (junction till t.ex. `E:\slu_gis\peat_1_0`).
 - **`LANTMATERIET_API_KEY`** – läses från `.env` för Lantmäteriet STAC.
 
 Byter du område: uppdatera **`AOI_BBOX`** och **`AOI_NAME`**, kör om hela kedjan.
@@ -46,6 +46,8 @@ Byter du område: uppdatera **`AOI_BBOX`** och **`AOI_NAME`**, kör om hela kedj
 - **Lantmäteriet** – GSD-höjddata (lidar-DEM) via STAC/API till `data/raw/lantmateriet/` (API-nyckel).
 - **SLU Skogliga Grunddata** – om du manuellt lagt filer enligt strukturen i `data/raw/slu/` används de i strukturindex med **högst prioritet**.
 - **Skyddad natur (valfritt)** – flagga `--protected-sites` eller enbart `--protected-sites-only`: hämtar **INSPIRE Protected Sites** (`ps:ProtectedSite`) från Naturvårdsverkets **WFS** inom `AOI_BBOX` utökad med marginal (`--protected-expand-deg`, standard 0,05°). Använder **WFS 1.1.0** + bbox i **EPSG:4258** (servern returnerar då träffar). Sparar `data/raw/naturvardsverket/skyddad_natur/protected_sites_<AOI>.gpkg` (SWEREF99 TM) + metadata. **Inga NVI-index** använder detta; det är kontext för GIS/showcase.
+- **SLU Skogskarta 2018 (valfritt, stort)** – `--slu-forest-map-confirm` hämtar `Ek_andel.tif` och `Bok_andel.tif` till `SLU_FOREST_MAP_DIR` (under `SLU_GIS_LARGE_ROOT`, se §2). Valfritt `--slu-forest-map-include-ovrlov` för `OvrLov_andel.tif`. `--slu-forest-map-only` = endast detta steg (kräver confirm).
+- **SLU kol 2023 (valfritt, zip)** – `--slu-carbon-confirm` hämtar `Stock_SOC.zip` eller `Stock_DOM.zip` (`--slu-carbon-product`), packar upp `.tif` till `SLU_CARBON_DIR`. `--slu-carbon-only` = endast detta steg. `--slu-gis-overwrite` skriver om befintliga filer.
 
 Skriptet transformerar **AOI** till **SWEREF99 TM** där det behövs för att beställa/hämta data som levereras i nationellt grid.
 
@@ -63,10 +65,8 @@ All bearbetning sker **inom AOI**. Raster **maskas** (klipps) med Shapely-box i 
 2. **GEE-export** – om fil matchar `*Delindex*.tif` i `data/raw/gee_exports/`: band 1 tolkas som NDVI-struktur, normaliseras. **Stannar här** om data finns.
 3. **NMD** – om basskikt-filen finns:
    - Skogsklasser 1–3 → skogsmask.
-   - **Lokal heterogenitet:** glidande standardavvikelse (7×7) på skogsmasken → proxy för “fragmentering/kant”.
-   - Bas: `0,5 × skog + 0,2 × norm(textur)` (klippt till \[0,1\] i slutet).
-   - **Trädslag:** ädellövskikt (adel/bok/ekovradel) ger **+0,20 × täckning**; trivial löv **+0,08**.
-   - **Objekthöjd:** normaliserad höjd ger **+0,10 × värde**.
+   - **Textur / kärnyta:** avståndstransform mot skogskant (interiör) + fler regler (sekundärlöv, gran, LiDAR, nyckelbiotop, NNK, SLU VOL, lav) — se källkod `build_structure_index()`.
+   - **SLU Skogskarta 2018 (valfritt):** om `Ek_andel.tif` / `Bok_andel.tif` / `OvrLov_andel.tif` finns i `SLU_FOREST_MAP_DIR` klipps de till AOI; medel av normaliserade andelar adderas som **~8 %** bonus på struktur (komplement till NMD-trädslag).
 4. **Hansen Global Forest Change** – `treecover2000` i `data/raw/hansen/`: täckning + textur, normaliserat. Sista utväg innan fel.
 
 **Metodidé:** Högt strukturindex ≈ mer skogsmässig “kvalitet” i bred bemärkelse (biomassa/höjd eller NMD-proxy för gammal/komplex skog med ädellöv och höjd).
@@ -88,9 +88,11 @@ All bearbetning sker **inom AOI**. Raster **maskas** (klipps) med Shapely-box i 
 ### 4.3 Fuktindex
 
 1. **Lantmäteriet DEM** – gradienter → **TWI** (Topographic Wetness Index, förenklad flödesackumulation / lutning). Normaliseras till \[0,1\]. Om NMD basskikt finns: **våtmarksklass** blandas in (70 % TWI + 30 % våtmarksmask).
-2. **Bara NMD** – om ingen DEM: våtmark + liten offset som fuktproxy.
-3. **Copernicus DEM** i `data/raw/dem/` – TWI med grovare upplösning (30 m cell antaget).
-4. Annars **konstant 0,5** med varning.
+2. **Valfritt SLU torv** – kontinuerlig/kategorisk torvkarta blandas in i fuktindex (se kod).
+3. **Valfritt SLU kol 2023** – om `.tif` från uppackad `Stock_SOC`/`Stock_DOM` finns i `SLU_CARBON_DIR`: normaliserad **~12 %** blend mot fuktindex.
+4. **Bara NMD** – om ingen DEM: våtmark + liten offset som fuktproxy.
+5. **Copernicus DEM** i `data/raw/dem/` – TWI med grovare upplösning (30 m cell antaget).
+6. Annars **konstant 0,5** med varning.
 
 **Metodidé:** Högt index ≈ topografiskt fuktigare lägen (och ev. kartlagd våtmark).
 
@@ -121,23 +123,24 @@ All bearbetning sker **inom AOI**. Raster **maskas** (klipps) med Shapely-box i 
 - Bara pixlar med **poäng > 0** räknas in i percentilberäkningen.
 - **p25**, **p75** och **p93** beräknas på dessa värden.
 - Absoluta golv används för att motverka att lågvärdiga ytor klassas upp enbart av sin relativa rank.
-- Regel (kumulativt högre klass vid högre poäng):
-  - Poäng > 0             → klass **1** – Visst naturvärde.
-  - Poäng > p25 (min 0,38) → klass **2** – Påtagligt naturvärde.
-  - Poäng > p75 (min 0,72) → klass **3** – Högt naturvärde.
-  - Poäng > p93 (min 0,85) → klass **4** – Mycket högt naturvärde.
+- Regel (kumulativt högre naturvärde vid högre poäng):
+  - Poäng > 0              → klass **4** – Visst naturvärde.
+  - Poäng > p25 (min 0,38) → klass **3** – Påtagligt naturvärde.
+  - Poäng > p75 (min 0,72) → klass **2** – Högt naturvärde.
+  - Poäng > p93 (min 0,85) → klass **1** – Mycket högt naturvärde.
 - Pixlar med poäng 0 blir **0** (nodata för klasser).
 
-**Validering mot Länsstyrelsens NVI-rapport 2022:42 (Djupedal, 44 objekt):**
+**Validering mot kommunal GPKG (västra Kungsbacka, 335 objekt):**
 
 | Mätning | Värde |
 |---------|-------|
-| Exakt klassträff | 32 % (14/44) |
-| Nära träff (±1 klass) | **84 %** (37/44) – viktigaste praktiska mätning |
-| Areal-viktad träff | 55 % |
-| Överskattade objekt | 26 (systematisk bias mot för hög klass) |
+| Exakt klassträff | 41,2 % (138/335) |
+| Nära träff (±1 klass) | **85,1 %** (285/335) – viktigaste praktiska mätning |
+| Areal-viktad träff | 36,1 % |
+| Överskattade objekt | 173 |
+| Underskattade objekt | 24 |
 
-Kvarstående systematisk överskattning förklaras av att granplanteringar utan avverkningsanmälan får hög kontinuitetspoäng — en oundviklig begränsning med Skogsstyrelsens anmälningsdata (se §8).
+Rapportvalidering för Djupedal finns kvar som separat skript (`validate_against_report.py`), men utfallet beror på att AOI/raster verkligen täcker rapportens koordinater.
 
 **Arealstatistik** skrivs till terminal (ungefärlig hektar baserat på pixelstorlek från transform, fallback 30 m om något är konstigt).
 
@@ -145,7 +148,7 @@ Kvarstående systematisk överskattning förklaras av att granplanteringar utan 
 
 | Var | Fil | Innehåll |
 |-----|-----|----------|
-| `outputs/rasters/` | `{AOI}_hotspot_class.tif` | Uint8, 0–3, nodata 0 – **det som används vidare** |
+| `outputs/rasters/` | `{AOI}_hotspot_class.tif` | Uint8, 0 = ej skog, **1–4** hotspot-klass – **det som används vidare** |
 | `outputs/figures/` | `{AOI}_hotspot_map.png` | Snabb översikt: klasskarta + NVI-poäng + tre delindex |
 
 ---
@@ -170,7 +173,7 @@ Kvarstående systematisk överskattning förklaras av att granplanteringar utan 
 config.py (AOI, vikter, sökvägar)
         │
         ▼
-download_data.py  →  data/raw/ …  (+ ev. NMD på extern disk)
+download_data.py  →  data/raw/ …  (+ NMD under data/raw/nmd, ev. junction till extern disk)
         │
         ▼
 compute_indices.py  →  data/processed/*_index.tif, *_nvi_score.tif
@@ -188,8 +191,8 @@ generate_showcase.py  →  docs/assets/*.png
 ## 8. Vad pipelinen *inte* gör
 
 - **Ingen fältinventering** – den producerar endast spatial prioritering underlag.
-- **Ingen formell NVI-klass 1–4** enligt handbok – utdata är **tre interna prioritetsklasser** tänkta som stöd för sampling (kan i ett senare steg översättas till er egen klassning).
-- **Tolkning av index** är modellbaserad: resultat beror på datakvalitet, upplösning och fallback-val. Percentiltrösklar (**p33/p67**) är **relativa inom AOI**, inte absoluta ekologiska gränser.
+- **Ingen fullständig fältprotokoll-NVI** – utdata är en **geodata-driven fyrklassig** prioritering (SS 199000:2023-orienterad skala i `hotspot_model.py`), inte en ersättning för hela fältmetodiken.
+- **Tolkning av index** är modellbaserad: resultat beror på datakvalitet, upplösning och fallback-val. Percentiltrösklar (**p25/p75/p93** m.m.) är **relativa inom AOI**, inte absoluta ekologiska gränser.
 - **Skyddade områden, rödlista och observationslager** (GBIF/SOS, `species_overlay_a.py`) ingår **inte** i viktningen av struktur/kontinuitet/fukt. De är **kompletterande lager** för tolkning, rapport och webb-presentation.
 
 **Efter fält:** att jämföra modellen med **fältfynd** (och ev. historiska observationslager med tidsfilter) är ett **separat utvärderingssteg** — se avsnitt 1a–1c i [`SPECIES_RODLISTA.md`](SPECIES_RODLISTA.md). Det ingår normalt **inte** som input till `compute_indices.py` utan tydlig separat metodbeskrivning.
@@ -214,7 +217,36 @@ python scripts/python/generate_showcase.py
 
 **Skyddad natur:** `python scripts/python/download_data.py --protected-sites-only` (eller `--protected-sites` tillsammans med övriga nedladdningar).
 
+**SLU Skogskarta + kol (stort, ofta på `E:/slu_gis`):**  
+`python scripts/python/download_data.py --slu-forest-map-confirm` och/eller `--slu-carbon-confirm` (ev. `--slu-forest-map-only` / `--slu-carbon-only`). Se §3.
+
+**Validering mot kommunal GPKG:** `python scripts/python/validate_against_gpkg.py` — valfritt `--hotspot sökväg`, `--no-figure`.
+
+**Jämför två klassraster (A/B):** kopiera referens `…_hotspot_class_ref.tif`, kör om pipelinen, sedan `python scripts/python/compare_hotspot_runs.py --ref sökväg`.
+
 Om något steg saknar data, läs terminalutskriften – den anger vilken **källa** som användes (SLU, NMD, Skogsstyrelsen, fallback …).
+
+---
+
+## 10. Senast genomfört (kort intern logg)
+
+- **SLU Skogskarta 2018** (andelar) och **SLU kol 2023** (.tif efter zip) integrerade i `compute_indices.py` (struktur + fukt) när filer finns; kataloger styrs av **`SLU_GIS_LARGE_ROOT`** (standard **`E:/slu_gis`** om `E:` finns).
+- **`download_data.py`:** `--slu-forest-map-confirm`, `--slu-carbon-confirm`, tillhörande `*-only`-lägen och `--slu-gis-overwrite`.
+- **`validate_against_gpkg.py`:** `--hotspot`, `--no-figure`; återanvändbar utvärdering för jämförelseskript.
+- **`compare_hotspot_runs.py`:** GPKG-metrics + pixelöverensstämmelse + delta mellan referens och aktuell raster.
+- **`generate_showcase.py`:** CRS-fallback via `AOI_BBOX`, skyddad natur med reprojektion till EPSG:3006, västkust-orter i inset vid behov.
+- **`docs/index.html`** m.m. uppdaterade för aktuellt AOI (Kungsbacka-exempel) och valideringsbild/siffror där det passerats in i arbetssessionen.
+
+---
+
+## 11. Nästa fas / fortsatt arbete (nästa gång)
+
+1. **PROJ/pyproj på Windows** – åtgärda `proj.db`-varning så att `contextily`-inset och `pysheds`-TWI fungerar fullt ut (ren venv, uppdaterad `pyproj`/`rasterio`, eller `PROJ_LIB` mot en konsekvent PROJ-installation).
+2. **Kalibrering SLU-lager** – efter att Skogskarta + kol laddats ner: kör `compare_hotspot_runs.py` mot sparad referens; justera blend-vikter (8 % / 12 %) eller välj endast `stock_dom` om SOC ger sidoeffekter.
+3. **`validate_against_gpkg.py`** – CLI för explicit GPKG-path och lagernamn (istället för första filen/första lagret).
+4. **Skogsdatalabbet / fler SLU-lager** – utvärdera om ytterligare öppna raster ska in i samma A/B-mönster innan de läggs i huvudvikten.
+5. **PIPELINE_METOD §5 tabell** – uppdatera valideringstal mot vald referens (Djupedal vs Kungsbacka) så tabellen inte står i strid med kod/körning.
+6. **Nedladdning** – valfritt: rensa bort nedladdad `.zip` för kol efter lyckad uppackning; valfritt stöd för partiell hämtning endast inom AOI (kräver WCS/COG — större utvecklingsinsats).
 
 ---
 

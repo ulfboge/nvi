@@ -24,6 +24,8 @@ python scripts/python/generate_showcase.py
 
 **Valfritt — artdata:** `fetch_public_observations.py` (GBIF och/eller SOS med `SOS_API_BASE` + `SOS_SUBSCRIPTION_KEY` i `.env`), `fetch_swedish_redlist_gbif.py` för rödlista-CSV, `species_overlay_a.py` mot `outputs/species/`. Detaljer i [SPECIES_RODLISTA.md](SPECIES_RODLISTA.md).
 
+**Projektstatus (Kungsbacka, arkiverad anteckning):** [docs/_archive/kungsbacka_status_och_nasta_steg.md](docs/_archive/kungsbacka_status_och_nasta_steg.md).
+
 Se [CLAUDE.md](CLAUDE.md) för konfiguration, datavägar och valfria fallback-källor.
 
 ## Licens

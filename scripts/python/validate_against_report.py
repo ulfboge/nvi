@@ -2,15 +2,13 @@
 validate_against_report.py
 Jämför pipeline-klassning mot Länsstyrelsens NVI-rapport (2022:42, Djupedal).
 
-Rapport-NVI:  4 klasser (SS 199000:2023)  klass 1=Mycket högt … klass 4=Visst
-Pipeline:     4 klasser (SS 199000:2023)  klass 4=Mycket högt … klass 1=Visst
+Rapport-NVI och pipeline använder nu samma numrering (SS 199000:2023):
+  Klass 1 = Mycket högt naturvärde
+  Klass 2 = Högt naturvärde
+  Klass 3 = Påtagligt naturvärde
+  Klass 4 = Visst naturvärde
 
-Mappning för jämförelse (direkt):
-  Rapport klass 1 (Mycket högt) → förväntat pipeline klass 4
-  Rapport klass 2 (Högt)        → förväntat pipeline klass 3
-  Rapport klass 3 (Påtagligt)   → förväntat pipeline klass 2
-  Rapport klass 4 (Visst)       → förväntat pipeline klass 1
-
+Jämförelsen är direkt – ingen omvändning av klassnummer behövs.
 Tolerans ±1 klass räknas som "nära träff".
 
 Kör:
@@ -91,15 +89,14 @@ REPORT_OBJECTS = [
 
 
 def report_to_pipeline_class(nvi_klass: int) -> int:
-    """Mappar rapport-klass (1–4) till förväntad pipeline-klass (4–1, SS 199000:2023).
+    """Direkt mappning – rapport och pipeline använder nu samma numrering (SS 199000:2023).
 
-    Rapport och pipeline använder nu samma 4-klasschema men omvänd numrering:
-      Rapport klass 1 (Mycket högt) → pipeline klass 4
-      Rapport klass 2 (Högt)        → pipeline klass 3
-      Rapport klass 3 (Påtagligt)   → pipeline klass 2
-      Rapport klass 4 (Visst)       → pipeline klass 1
+      Rapport klass 1 (Mycket högt) → pipeline klass 1
+      Rapport klass 2 (Högt)        → pipeline klass 2
+      Rapport klass 3 (Påtagligt)   → pipeline klass 3
+      Rapport klass 4 (Visst)       → pipeline klass 4
     """
-    return 5 - nvi_klass   # speglar 1→4, 2→3, 3→2, 4→1
+    return nvi_klass   # direkt, ingen omvändning
 
 
 def sample_raster_at_point(src, easting: float, northing: float, window: int = 3):
@@ -153,6 +150,11 @@ def run():
     print(f"\n  Samplade: {len(results)} objekt  |  Utanför/maskerade: {len(outside)}")
     if outside:
         print(f"  Objekt utanför AOI eller maskerade: {outside}")
+
+    if not results:
+        print("\n  [info] Inga rapportobjekt överlappar aktuell hotspot-raster/AOI.")
+        print("  [tips] Kontrollera AOI_NAME, rasterfil och att koordinatsystemet är SWEREF99 TM (EPSG:3006).")
+        return
 
     # ── Sammanfattning ──
     n_match = sum(r["match"] for r in results)
@@ -217,7 +219,7 @@ def _plot_validation(results, outside):
 
     # ── Confusion matrix (objekt-antal) ──
     ax = axes[0]
-    labels = ["Klass 1\n(Visst)", "Klass 2\n(Påtagligt)", "Klass 3\n(Högt)", "Klass 4\n(Mycket högt)"]
+    labels = ["Klass 1\n(Mycket högt)", "Klass 2\n(Högt)", "Klass 3\n(Påtagligt)", "Klass 4\n(Visst)"]
     cm = np.zeros((4, 4), dtype=int)
     for r in results:
         ei = min(max(r["exp_cls"] - 1, 0), 3)
@@ -246,8 +248,8 @@ def _plot_validation(results, outside):
                     edgecolors="grey", linewidths=0.4)
     ax2.set_xticks([1, 2, 3, 4])
     ax2.set_yticks([1, 2, 3, 4])
-    ax2.set_xticklabels(["1 (Visst)", "2 (Påtagligt)", "3 (Högt)", "4 (Mycket högt)"], fontsize=8)
-    ax2.set_yticklabels(["1 (Visst)", "2 (Påtagligt)", "3 (Högt)", "4 (Mycket högt)"], fontsize=8)
+    ax2.set_xticklabels(["1 (Mycket högt)", "2 (Högt)", "3 (Påtagligt)", "4 (Visst)"], fontsize=8)
+    ax2.set_yticklabels(["1 (Mycket högt)", "2 (Högt)", "3 (Påtagligt)", "4 (Visst)"], fontsize=8)
     ax2.set_xlabel("Förväntad klass (rapport → SS 199000:2023)", fontsize=10)
     ax2.set_ylabel("Pipeline-klass", fontsize=10)
     ax2.set_title("Klassöverensstämmelse per objekt\n(cirkelstorlek ≈ areal)", fontsize=10)

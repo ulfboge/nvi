@@ -53,6 +53,24 @@ Skriptet transformerar **AOI** till **SWEREF99 TM** där det behövs för att be
 
 **Resultat:** Filer på disk – inga sammanslagna index ännu. Utan relevanta filer hoppar `compute_indices.py` till fallback-kedjor eller avslutar med fel/meddelande.
 
+### 3b. `download_nature_layers.py` – naturlager för valfria bonusar
+
+**Syfte:** hämta AOI-klippta lager som kan ge försiktiga bonusar i struktur/kontinuitet.
+
+- Nyckelbiotoper (Skogsstyrelsen)
+- Naturkultur / objekt med naturvärden (Skogsstyrelsen)
+- Sumpskog (Skogsstyrelsen)
+- Naturvårdsavtal (om lager hittas i naturkulturtjänsten)
+
+**Körning:**
+
+```bash
+python scripts/python/download_nature_layers.py
+python scripts/python/download_nature_layers.py --overwrite
+```
+
+**Utdata:** `data/raw/nature_layers/` med både GPKG och binära 10 m-raster (`*_10m.tif`) för snabb inläsning i `compute_indices.py`.
+
 ---
 
 ## 4. `compute_indices.py` – under huven per delindex
@@ -67,6 +85,10 @@ All bearbetning sker **inom AOI**. Raster **maskas** (klipps) med Shapely-box i 
    - Skogsklasser 1–3 → skogsmask.
    - **Textur / kärnyta:** avståndstransform mot skogskant (interiör) + fler regler (sekundärlöv, gran, LiDAR, nyckelbiotop, NNK, SLU VOL, lav) — se källkod `build_structure_index()`.
    - **SLU Skogskarta 2018 (valfritt):** om `Ek_andel.tif` / `Bok_andel.tif` / `OvrLov_andel.tif` finns i `SLU_FOREST_MAP_DIR` klipps de till AOI; medel av normaliserade andelar adderas som **~8 %** bonus på struktur (komplement till NMD-trädslag).
+   - **Naturlager (valfritt):** om `NATURE_LAYER_BONUSES=1` och raster finns i `data/raw/nature_layers/` adderas små bonusar:
+     - Nyckelbiotoper +0.05
+     - Naturkultur +0.03
+     - Sumpskog +0.02
 4. **Hansen Global Forest Change** – `treecover2000` i `data/raw/hansen/`: täckning + textur, normaliserat. Sista utväg innan fel.
 
 **Metodidé:** Högt strukturindex ≈ mer skogsmässig “kvalitet” i bred bemärkelse (biomassa/höjd eller NMD-proxy för gammal/komplex skog med ädellöv och höjd).
@@ -80,6 +102,7 @@ All bearbetning sker **inom AOI**. Raster **maskas** (klipps) med Shapely-box i 
    - Faller tillbaka på binärt raster om GPKG saknas.
 2. **GEE Delindex** – om minst 5 band: NDVI-standardavvikelse m.m. omvandlas till en stabilitetsproxy (lägre variabilitet → högre kontinuitet).
 3. Annars **konstant 0,5** (neutralt) med varning.
+4. **Naturlager (valfritt)**: om `NATURE_LAYER_BONUSES=1` och naturvårdsavtal-raster finns adderas +0.05 i kontinuitetsindex.
 
 **Metodidé:** Högt index ≈ ytor som sällan/aldrig störts, med äldre störningar viktade lägre.
 
@@ -220,9 +243,29 @@ python scripts/python/generate_showcase.py
 **SLU Skogskarta + kol (stort, ofta på `E:/slu_gis`):**  
 `python scripts/python/download_data.py --slu-forest-map-confirm` och/eller `--slu-carbon-confirm` (ev. `--slu-forest-map-only` / `--slu-carbon-only`). Se §3.
 
+**Naturlager (nyckelbiotoper/naturkultur/sumpskog/naturvårdsavtal):**  
+`python scripts/python/download_nature_layers.py` (valfritt `--overwrite`).
+
 **Validering mot kommunal GPKG:** `python scripts/python/validate_against_gpkg.py` — valfritt `--hotspot sökväg`, `--no-figure`.
 
 **Jämför två klassraster (A/B):** kopiera referens `…_hotspot_class_ref.tif`, kör om pipelinen, sedan `python scripts/python/compare_hotspot_runs.py --ref sökväg`.
+
+**Benchmark baslinje vs naturlager:**
+
+```bash
+# Baslinje utan naturlager
+set NATURE_LAYER_BONUSES=0
+python scripts/python/compute_indices.py
+python scripts/python/hotspot_model.py
+copy outputs\\rasters\\kungsbacka_vastra_hotspot_class.tif outputs\\rasters\\kungsbacka_vastra_hotspot_class_ref.tif
+
+# Förstärkt med naturlager
+set NATURE_LAYER_BONUSES=1
+python scripts/python/download_nature_layers.py
+python scripts/python/compute_indices.py
+python scripts/python/hotspot_model.py
+python scripts/python/compare_hotspot_runs.py --ref outputs\\rasters\\kungsbacka_vastra_hotspot_class_ref.tif
+```
 
 Om något steg saknar data, läs terminalutskriften – den anger vilken **källa** som användes (SLU, NMD, Skogsstyrelsen, fallback …).
 

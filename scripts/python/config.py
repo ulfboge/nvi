@@ -134,11 +134,33 @@ NYCKELBIOTOP_DIR = SKOGSST_DIR  # sparas i skogsstyrelsen/-mappen
 NNK_DIR = NATURVARDSVERKET_DIR / "nnk"
 # Länsbokstav för NNK-nedladdning (O = Västra Götaland, C = Uppsala/Fiby etc.)
 NNK_LAN = "O"
+# Naturlager (nyckelbiotoper/naturkultur/sumpskog/naturvårdsavtal)
+NATURE_LAYERS_DIR = RAW_DIR / "nature_layers"
+NATURE_NYCKELBIOTOPER_GPKG = NATURE_LAYERS_DIR / f"nyckelbiotoper_{AOI_NAME}.gpkg"
+NATURE_NYCKELBIOTOPER_RASTER = NATURE_LAYERS_DIR / f"nyckelbiotoper_{AOI_NAME}_10m.tif"
+NATURE_NATURKULTUR_GPKG = NATURE_LAYERS_DIR / f"naturkultur_{AOI_NAME}.gpkg"
+NATURE_NATURKULTUR_RASTER = NATURE_LAYERS_DIR / f"naturkultur_{AOI_NAME}_10m.tif"
+NATURE_SUMPSKOG_GPKG = NATURE_LAYERS_DIR / f"sumpskog_{AOI_NAME}.gpkg"
+NATURE_SUMPSKOG_RASTER = NATURE_LAYERS_DIR / f"sumpskog_{AOI_NAME}_10m.tif"
+NATURE_NATURVARDSAVTAL_GPKG = NATURE_LAYERS_DIR / f"naturvardsavtal_{AOI_NAME}.gpkg"
+NATURE_NATURVARDSAVTAL_RASTER = NATURE_LAYERS_DIR / f"naturvardsavtal_{AOI_NAME}_10m.tif"
+# Styrning för valfria natur-bonuslager i compute_indices.py
+ENABLE_NATURE_LAYER_BONUSES = os.environ.get("NATURE_LAYER_BONUSES", "1").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
+NATURE_LAYER_WEIGHTS = {
+    "structure_nyckelbiotoper": 0.05,
+    "structure_naturkultur": 0.03,
+    "structure_sumpskog": 0.02,
+    "continuity_naturvardsavtal": 0.05,
+}
 
 for d in [NMD_DIR, SKOGSST_DIR, LM_DIR, LM_LIDAR_LAZ_DIR, SLU_DIR, S2_EXPORT_DIR,
           SLU_GIS_DIR, SLU_GIS_LARGE_ROOT, SLU_SKOGSALDER_DIR, SLU_LICHEN_DIR, SLU_PEAT_DIR,
           SLU_FOREST_MAP_DIR, SLU_CARBON_DIR,
-          NATURVARDSVERKET_DIR, PROTECTED_SITES_DIR, NNK_DIR,
+          NATURVARDSVERKET_DIR, PROTECTED_SITES_DIR, NNK_DIR, NATURE_LAYERS_DIR,
           PROC_DIR, FIGURES_DIR, RASTERS_DIR, SPECIES_OUTPUT_DIR,
           ARTER_OBS_DIR, ARTER_RODLISTA_DIR, ARTER_DERIVED_DIR]:
     d.mkdir(parents=True, exist_ok=True)

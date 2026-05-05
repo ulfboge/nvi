@@ -29,6 +29,12 @@ from config import (
     HANSEN_DIR, WORLDCOVER_DIR, DEM_FALLBACK_DIR,
     NYCKELBIOTOP_DIR, NNK_DIR,
     SPECIES_OUTPUT_DIR,
+    NATURE_NYCKELBIOTOPER_RASTER,
+    NATURE_NATURKULTUR_RASTER,
+    NATURE_SUMPSKOG_RASTER,
+    NATURE_NATURVARDSAVTAL_RASTER,
+    NATURE_LAYER_WEIGHTS,
+    ENABLE_NATURE_LAYER_BONUSES,
 )
 
 try:
@@ -214,6 +220,17 @@ def _pick_slu_carbon_stock_tif() -> Path | None:
         if "stock" in n and "dom" in n:
             return p
     return cands[0]
+
+
+def _read_binary_bonus_raster(path: Path, target_shape: tuple) -> np.ndarray | None:
+    if not path.exists():
+        return None
+    out = try_clip_and_read(path, crs_is_sweref=True)
+    if out is None:
+        return None
+    arr, _ = out
+    arr = resample_to(np.nan_to_num(arr, nan=0.0), target_shape)
+    return (arr > 0).astype(float)
 
 
 # ── TWI-beräkning ─────────────────────────────────────────────────────────────
@@ -503,6 +520,18 @@ def build_structure_index():
                 print(f"  [VARNING] Lavindikatorlager kunde inte användas: {e}")
 
         structure = _apply_slu_forest_map_to_structure(structure)
+        if ENABLE_NATURE_LAYER_BONUSES:
+            nature_layers = [
+                ("Nyckelbiotoper", NATURE_NYCKELBIOTOPER_RASTER, NATURE_LAYER_WEIGHTS["structure_nyckelbiotoper"]),
+                ("Naturkultur", NATURE_NATURKULTUR_RASTER, NATURE_LAYER_WEIGHTS["structure_naturkultur"]),
+                ("Sumpskog", NATURE_SUMPSKOG_RASTER, NATURE_LAYER_WEIGHTS["structure_sumpskog"]),
+            ]
+            for label, path, w in nature_layers:
+                m = _read_binary_bonus_raster(path, structure.shape)
+                if m is None:
+                    continue
+                structure = np.clip(structure + m * float(w), 0, 1)
+                print(f"  + Naturlager-bonus: {label} ({w:.2f})")
 
         return np.clip(structure, 0, 1), meta
 
@@ -654,6 +683,13 @@ def build_continuity_index(target_shape: tuple):
                 print("  + SLU skogsalder-komponent applicerad (18 % blend)")
         except Exception as e:
             print(f"  [VARNING] Skogsalderlager kunde inte användas: {e}")
+
+    if ENABLE_NATURE_LAYER_BONUSES:
+        m = _read_binary_bonus_raster(NATURE_NATURVARDSAVTAL_RASTER, target_shape)
+        if m is not None:
+            w = float(NATURE_LAYER_WEIGHTS["continuity_naturvardsavtal"])
+            continuity = np.clip(continuity + m * w, 0, 1)
+            print(f"  + Naturlager-bonus: Naturvårdsavtal ({w:.2f})")
 
     return continuity
 

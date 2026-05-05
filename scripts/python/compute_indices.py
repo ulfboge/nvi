@@ -271,12 +271,19 @@ def compute_twi(dem: np.ndarray, cell_m: float = 2.0) -> np.ndarray:
     except Exception as _e:
         print(f"  TWI: pysheds misslyckades ({_e}) – faller tillbaka till enkel gradient")
 
-    # ── Fallback: enkel 3×3-gradientmetod ────────────────────────────────────
+    # ── Fallback: snabb, vektoriserad topografiproxy ─────────────────────────
+    # Undvik generic_filter + Python-lambda här; på stora 2m-raster blir det
+    # mycket långsamt och kan upplevas som "hängning".
     dy, dx = np.gradient(dem_clean, cell_m)
     slope = np.arctan(np.sqrt(dx**2 + dy**2))
     tan_slope = np.clip(np.tan(slope), 0.001, None)
-    flow_acc = generic_filter(dem_clean, lambda p: float(np.sum(p > p[4])), size=3) + 1.0
-    twi = np.log(flow_acc / tan_slope)
+    from scipy.ndimage import uniform_filter
+    local_mean = uniform_filter(dem_clean, size=3, mode="nearest")
+    depression = np.clip(local_mean - dem_clean, 0.0, None)
+    dep_norm = depression / (np.nanpercentile(depression, 98) + 1e-9)
+    flow_proxy = 1.0 + dep_norm * 8.0
+    twi = np.log(flow_proxy / tan_slope)
+    print("  TWI: snabb fallback-proxy (lokal depression + lutning)")
     return np.where(valid_mask, twi, np.nan)
 
 

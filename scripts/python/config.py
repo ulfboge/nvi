@@ -164,16 +164,71 @@ ENABLE_NATURE_LAYER_BONUSES = os.environ.get("NATURE_LAYER_BONUSES", "1").strip(
     "true",
     "yes",
 )
+
+# AOI-specifika standardpresets för naturvikter/åldersblend.
+# Kan alltid överstyras med NATURE_W_* och CONTINUITY_AGE_BLEND i miljön.
+_MODEL_DEFAULTS_BY_AOI = {
+    # Kalibrerat mellanspann (mid_1) verifierat mot Kungsbacka.
+    "kungsbacka_vastra": {
+        "structure_nyckelbiotoper": 0.08,
+        "structure_naturkultur": 0.05,
+        "structure_sumpskog": 0.04,
+        "continuity_naturvardsavtal": 0.08,
+        "moisture_sumpskog": 0.05,
+        "continuity_age_blend": 0.24,
+    },
+    # Behåll försiktig baseline för LstE (generaliseringscheck visade ingen vinst med mid_1).
+    "lste_ostergotland": {
+        "structure_nyckelbiotoper": 0.05,
+        "structure_naturkultur": 0.03,
+        "structure_sumpskog": 0.02,
+        "continuity_naturvardsavtal": 0.05,
+        "moisture_sumpskog": 0.00,
+        "continuity_age_blend": 0.18,
+    },
+}
+_model_defaults = _MODEL_DEFAULTS_BY_AOI.get(
+    AOI_NAME,
+    _MODEL_DEFAULTS_BY_AOI["kungsbacka_vastra"],
+)
+
 NATURE_LAYER_WEIGHTS = {
-    "structure_nyckelbiotoper": float(os.environ.get("NATURE_W_STRUCTURE_NYCKELBIOTOPER", "0.08")),
-    "structure_naturkultur": float(os.environ.get("NATURE_W_STRUCTURE_NATURKULTUR", "0.05")),
-    "structure_sumpskog": float(os.environ.get("NATURE_W_STRUCTURE_SUMPSKOG", "0.04")),
-    "continuity_naturvardsavtal": float(os.environ.get("NATURE_W_CONT_NATURVARDSAVTAL", "0.08")),
-    "moisture_sumpskog": float(os.environ.get("NATURE_W_MOISTURE_SUMPSKOG", "0.05")),
+    "structure_nyckelbiotoper": float(
+        os.environ.get(
+            "NATURE_W_STRUCTURE_NYCKELBIOTOPER",
+            str(_model_defaults["structure_nyckelbiotoper"]),
+        )
+    ),
+    "structure_naturkultur": float(
+        os.environ.get(
+            "NATURE_W_STRUCTURE_NATURKULTUR",
+            str(_model_defaults["structure_naturkultur"]),
+        )
+    ),
+    "structure_sumpskog": float(
+        os.environ.get(
+            "NATURE_W_STRUCTURE_SUMPSKOG",
+            str(_model_defaults["structure_sumpskog"]),
+        )
+    ),
+    "continuity_naturvardsavtal": float(
+        os.environ.get(
+            "NATURE_W_CONT_NATURVARDSAVTAL",
+            str(_model_defaults["continuity_naturvardsavtal"]),
+        )
+    ),
+    "moisture_sumpskog": float(
+        os.environ.get(
+            "NATURE_W_MOISTURE_SUMPSKOG",
+            str(_model_defaults["moisture_sumpskog"]),
+        )
+    ),
 }
 
 # Isolerbar vikt för SLU skogsålder i kontinuitet (0–1).
-CONTINUITY_AGE_BLEND = float(os.environ.get("CONTINUITY_AGE_BLEND", "0.24"))
+CONTINUITY_AGE_BLEND = float(
+    os.environ.get("CONTINUITY_AGE_BLEND", str(_model_defaults["continuity_age_blend"]))
+)
 
 for d in [NMD_DIR, SKOGSST_DIR, LM_DIR, LM_LIDAR_LAZ_DIR, SLU_DIR, S2_EXPORT_DIR,
           SLU_GIS_DIR, SLU_GIS_LARGE_ROOT, SLU_SKOGSALDER_DIR, SLU_LICHEN_DIR, SLU_PEAT_DIR,

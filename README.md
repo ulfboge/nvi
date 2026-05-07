@@ -25,7 +25,7 @@ python scripts/python/generate_showcase.py
 **Valfritt — naturlager för modellbonus (nyckelbiotoper/naturkultur/sumpskog/naturvårdsavtal):**
 `python scripts/python/download_nature_layers.py` (skriver AOI-klippta GPKG + 10 m-raster i `data/raw/nature_layers/`).
 Bonusar i `compute_indices.py` styrs med `NATURE_LAYER_BONUSES=1|0` (default: på).
-Defaultvikter i `config.py` motsvarar ett kalibrerat mellanspann (`mid_1`, 2026-05-07, Kungsbacka) och kan överstyras via `NATURE_W_*` + `CONTINUITY_AGE_BLEND`.
+Defaultvikter i `config.py` är nu AOI-specifika: `kungsbacka_vastra` använder kalibrerat `mid_1`, medan `lste_ostergotland` behåller baseline. Du kan alltid överstyra via `NATURE_W_*` + `CONTINUITY_AGE_BLEND`.
 
 **Valfritt — SLU Skogskarta 2018 + kol 2023 (stora filer, ofta `E:/slu_gis`):** `download_data.py --slu-forest-map-confirm` och/eller `--slu-carbon-confirm` (se [PIPELINE_METOD.md](PIPELINE_METOD.md) §3). Styr rot med `SLU_GIS_LARGE_ROOT` i `.env`.
 

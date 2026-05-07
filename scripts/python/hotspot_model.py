@@ -13,6 +13,7 @@ Kör:
 """
 
 import sys
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
@@ -206,7 +207,11 @@ def run():
 
     px = px_m if px_m > 1 else 10.0
     cls, p25, p75, p93 = classify_hotspots(score)
-    cls = apply_patch_filter(cls, pixel_size_m=px, min_ha=0.5)
+    skip_patch_filter = os.environ.get("HOTSPOT_SKIP_PATCH_FILTER", "0").strip().lower() in ("1", "true", "yes")
+    if skip_patch_filter:
+        print("  [info] Patchfilter hoppas over via HOTSPOT_SKIP_PATCH_FILTER")
+    else:
+        cls = apply_patch_filter(cls, pixel_size_m=px, min_ha=0.5)
     area_statistics(cls, pixel_size_m=px)
 
     # Ladda delindex för visualisering

@@ -35,6 +35,7 @@ from config import (
     NATURE_NATURVARDSAVTAL_RASTER,
     NATURE_LAYER_WEIGHTS,
     ENABLE_NATURE_LAYER_BONUSES,
+    CONTINUITY_AGE_BLEND,
 )
 
 try:
@@ -442,12 +443,18 @@ def build_structure_index():
         # Nyckelbiotop-bonus: Skogsstyrelsens nyckelbiotoper indikerar höga naturvärden
         nb_raster = NYCKELBIOTOP_DIR / "nyckelbiotoper_raster_10m.tif"
         if nb_raster.exists():
-            nb, _ = clip_and_read(nb_raster, crs_is_sweref=True)
-            nb = resample_to((nb > 0).astype(float), structure.shape)
-            # Gran-dominerade nyckelbiotoper får lägre bonus (0.10) än lövdominerade (0.25)
-            nb_bonus = np.where(gran > 0.6, nb * 0.10, nb * 0.25)
-            structure += nb_bonus
-            print("  + Nyckelbiotop-bonus applicerad (trädslagsadekvat)")
+            try:
+                nb, _ = clip_and_read(nb_raster, crs_is_sweref=True)
+                nb = resample_to((nb > 0).astype(float), structure.shape)
+                # Gran-dominerade nyckelbiotoper får lägre bonus (0.10) än lövdominerade (0.25)
+                nb_bonus = np.where(gran > 0.6, nb * 0.10, nb * 0.25)
+                structure += nb_bonus
+                print("  + Nyckelbiotop-bonus applicerad (trädslagsadekvat)")
+            except ValueError as e:
+                if "do not overlap raster" in str(e):
+                    print("  [info] Nyckelbiotop-raster saknar overlap med AOI – hoppar over lagret")
+                else:
+                    raise
 
         # NNK-bonus: Natura 2000-naturtyper (skogsliga) indikerar höga naturvärden
         nnk_files = list(NNK_DIR.glob("nnk_*_skogstyper_aoi.gpkg"))
@@ -679,8 +686,9 @@ def build_continuity_index(target_shape: tuple):
                 age_layers.append(normalize(age_arr, p_lo=5, p_hi=95))
             if age_layers:
                 age_comp = np.max(np.stack(age_layers, axis=0), axis=0)
-                continuity = np.clip(continuity * 0.82 + age_comp * 0.18, 0, 1)
-                print("  + SLU skogsalder-komponent applicerad (18 % blend)")
+                age_blend = float(np.clip(CONTINUITY_AGE_BLEND, 0.0, 1.0))
+                continuity = np.clip(continuity * (1.0 - age_blend) + age_comp * age_blend, 0, 1)
+                print(f"  + SLU skogsalder-komponent applicerad ({age_blend:.2f} blend)")
         except Exception as e:
             print(f"  [VARNING] Skogsalderlager kunde inte användas: {e}")
 
@@ -788,6 +796,14 @@ def build_moisture_index(target_shape: tuple):
                 print(f"  + SLU kol (lager: {carb_path.name}) — 12 % blend i fuktindex")
         except Exception as e:
             print(f"  [VARNING] SLU kol-lager kunde inte användas: {e}")
+
+    if ENABLE_NATURE_LAYER_BONUSES:
+        w = float(NATURE_LAYER_WEIGHTS.get("moisture_sumpskog", 0.0))
+        if w > 0:
+            m = _read_binary_bonus_raster(NATURE_SUMPSKOG_RASTER, target_shape)
+            if m is not None:
+                moisture = np.clip(moisture * (1.0 - w) + m * w, 0, 1)
+                print(f"  + Naturlager-fuktstöd: Sumpskog ({w:.2f} blend)")
 
     return moisture
 

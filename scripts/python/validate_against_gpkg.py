@@ -152,34 +152,44 @@ def _plot(results: list[dict], out_path: Path) -> None:
     plt.close()
 
 
-def _load_nv_gpkg() -> tuple[Path, str | None, gpd.GeoDataFrame] | None:
-    gpkg_dir = REPO_DIR / "data" / "raw" / "gpkg"
-    gpkg_files = sorted(gpkg_dir.glob("*.gpkg"))
-    if not gpkg_files:
+def _load_nv_gpkg(gpkg_path: Path | None = None, layer: str | None = None, class_field: str = "nvklass") -> tuple[Path, str | None, gpd.GeoDataFrame] | None:
+    if gpkg_path is None:
+        gpkg_dir = REPO_DIR / "data" / "raw" / "gpkg"
+        gpkg_files = sorted(gpkg_dir.glob("*.gpkg"))
+        if not gpkg_files:
+            return None
+        gpkg_path = gpkg_files[0]
+    if not gpkg_path.exists():
         return None
-    gpkg_path = gpkg_files[0]
+
     layers = gpd.list_layers(gpkg_path)
-    layer = layers.iloc[0]["name"] if len(layers) else None
+    if layer is None:
+        layer = layers.iloc[0]["name"] if len(layers) else None
     gdf = gpd.read_file(gpkg_path, layer=layer)
-    if "nvklass" not in gdf.columns:
+    if class_field not in gdf.columns:
         return None
     gdf = gdf[gdf.geometry.notna() & (~gdf.geometry.is_empty)].copy()
-    gdf["exp_cls"] = gdf["nvklass"].map(_parse_class)
+    gdf["exp_cls"] = gdf[class_field].map(_parse_class)
     gdf = gdf[gdf["exp_cls"].notna()].copy()
     gdf["exp_cls"] = gdf["exp_cls"].astype(int)
     gdf["area_m2"] = gdf.geometry.area
     return gpkg_path, layer, gdf
 
 
-def evaluate_hotspot_vs_gpkg(hotspot_path: Path) -> dict | None:
+def evaluate_hotspot_vs_gpkg(
+    hotspot_path: Path,
+    gpkg_path: Path | None = None,
+    layer: str | None = None,
+    class_field: str = "nvklass",
+) -> tuple[dict | None, str]:
     """
     Returnerar mätvärden + resultatlista. None om GPKG eller raster saknas / inga objekt.
     """
     if not hotspot_path.exists():
-        return None
-    loaded = _load_nv_gpkg()
+        return None, f"saknar raster: {hotspot_path}"
+    loaded = _load_nv_gpkg(gpkg_path=gpkg_path, layer=layer, class_field=class_field)
     if loaded is None:
-        return None
+        return None, f"saknar GPKG eller fältet {class_field}"
     gpkg_path, layer, gdf = loaded
 
     with rasterio.open(hotspot_path) as src:
@@ -213,7 +223,7 @@ def evaluate_hotspot_vs_gpkg(hotspot_path: Path) -> dict | None:
         )
 
     if not results:
-        return None
+        return None, "inga jämförbara objekt (ingen överlapp/maskerade objekt)"
 
     total = len(results)
     exact = sum(r["match"] for r in results)
@@ -233,7 +243,7 @@ def evaluate_hotspot_vs_gpkg(hotspot_path: Path) -> dict | None:
         "over": sum(r["diff"] > 0 for r in results),
         "under": sum(r["diff"] < 0 for r in results),
         "results": results,
-    }
+    }, ""
 
 
 def print_metrics(m: dict, raster_label: str) -> None:
@@ -248,14 +258,20 @@ def print_metrics(m: dict, raster_label: str) -> None:
     print(f"Underskattade:    {m['under']}")
 
 
-def run(hotspot_path: Path | None = None, write_figure: bool = True) -> None:
+def run(
+    hotspot_path: Path | None = None,
+    gpkg_path: Path | None = None,
+    gpkg_layer: str | None = None,
+    class_field: str = "nvklass",
+    write_figure: bool = True,
+) -> None:
     path = hotspot_path or (RASTERS_DIR / f"{AOI_NAME}_hotspot_class.tif")
     if not path.exists():
         sys.exit(f"[FEL] Saknar {path}")
 
-    m = evaluate_hotspot_vs_gpkg(path)
+    m, reason = evaluate_hotspot_vs_gpkg(path, gpkg_path=gpkg_path, layer=gpkg_layer, class_field=class_field)
     if m is None:
-        sys.exit("[FEL] GPKG eller fältet nvklass saknas, eller inga jämförbara objekt.")
+        sys.exit(f"[FEL] {reason}")
 
     print("\n" + "=" * 60)
     print("Validering mot GPKG-NVI")
@@ -277,9 +293,31 @@ if __name__ == "__main__":
         help="Sökväg till hotspot_class.tif (standard: outputs/rasters/{AOI}_hotspot_class.tif)",
     )
     parser.add_argument(
+        "--gpkg",
+        type=Path,
+        default=None,
+        help="Valfri sökväg till referens-GPKG (annars första i data/raw/gpkg/*.gpkg)",
+    )
+    parser.add_argument(
+        "--gpkg-layer",
+        default=None,
+        help="Valfritt lagernamn i GPKG (annars första lager).",
+    )
+    parser.add_argument(
+        "--class-field",
+        default="nvklass",
+        help="Fältnamn i GPKG som innehåller klassvärde (default: nvklass).",
+    )
+    parser.add_argument(
         "--no-figure",
         action="store_true",
         help="Skriv endast tabell (ingen PNG)",
     )
     a = parser.parse_args()
-    run(hotspot_path=a.hotspot, write_figure=not a.no_figure)
+    run(
+        hotspot_path=a.hotspot,
+        gpkg_path=a.gpkg,
+        gpkg_layer=a.gpkg_layer,
+        class_field=a.class_field,
+        write_figure=not a.no_figure,
+    )

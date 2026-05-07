@@ -31,6 +31,20 @@ AOI_BBOX = {
     "max_lat": 57.565004,
 }
 
+# Tillfälliga AOI-overrides via miljövariabler (praktiskt för jämförelsekörningar utan att editera filen):
+#   AOI_NAME_OVERRIDE, AOI_LABEL_OVERRIDE
+#   AOI_MIN_LON, AOI_MAX_LON, AOI_MIN_LAT, AOI_MAX_LAT
+_aoi_name_override = os.environ.get("AOI_NAME_OVERRIDE", "").strip()
+if _aoi_name_override:
+    AOI_NAME = _aoi_name_override
+    AOI_LABEL = os.environ.get("AOI_LABEL_OVERRIDE", AOI_NAME).strip() or AOI_NAME
+    AOI_BBOX = {
+        "min_lon": float(os.environ["AOI_MIN_LON"]),
+        "max_lon": float(os.environ["AOI_MAX_LON"]),
+        "min_lat": float(os.environ["AOI_MIN_LAT"]),
+        "max_lat": float(os.environ["AOI_MAX_LAT"]),
+    }
+
 # Fiby urskog, Uppland – välkänd gammelskog, ursprungligt testfall
 # AOI_NAME = "fiby_urskog"
 # AOI_BBOX = {
@@ -151,11 +165,15 @@ ENABLE_NATURE_LAYER_BONUSES = os.environ.get("NATURE_LAYER_BONUSES", "1").strip(
     "yes",
 )
 NATURE_LAYER_WEIGHTS = {
-    "structure_nyckelbiotoper": 0.05,
-    "structure_naturkultur": 0.03,
-    "structure_sumpskog": 0.02,
-    "continuity_naturvardsavtal": 0.05,
+    "structure_nyckelbiotoper": float(os.environ.get("NATURE_W_STRUCTURE_NYCKELBIOTOPER", "0.08")),
+    "structure_naturkultur": float(os.environ.get("NATURE_W_STRUCTURE_NATURKULTUR", "0.05")),
+    "structure_sumpskog": float(os.environ.get("NATURE_W_STRUCTURE_SUMPSKOG", "0.04")),
+    "continuity_naturvardsavtal": float(os.environ.get("NATURE_W_CONT_NATURVARDSAVTAL", "0.08")),
+    "moisture_sumpskog": float(os.environ.get("NATURE_W_MOISTURE_SUMPSKOG", "0.05")),
 }
+
+# Isolerbar vikt för SLU skogsålder i kontinuitet (0–1).
+CONTINUITY_AGE_BLEND = float(os.environ.get("CONTINUITY_AGE_BLEND", "0.24"))
 
 for d in [NMD_DIR, SKOGSST_DIR, LM_DIR, LM_LIDAR_LAZ_DIR, SLU_DIR, S2_EXPORT_DIR,
           SLU_GIS_DIR, SLU_GIS_LARGE_ROOT, SLU_SKOGSALDER_DIR, SLU_LICHEN_DIR, SLU_PEAT_DIR,

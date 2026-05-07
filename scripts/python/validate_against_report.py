@@ -16,6 +16,7 @@ Kör:
 """
 
 import sys
+import argparse
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
@@ -117,8 +118,9 @@ def sample_raster_at_point(src, easting: float, northing: float, window: int = 3
     return None
 
 
-def run():
-    hotspot_path = RASTERS_DIR / f"{AOI_NAME}_hotspot_class.tif"
+def run(hotspot_path: Path | None = None):
+    if hotspot_path is None:
+        hotspot_path = RASTERS_DIR / f"{AOI_NAME}_hotspot_class.tif"
     if not hotspot_path.exists():
         sys.exit(f"[FEL] Saknar {hotspot_path.name} – kör hotspot_model.py först.")
 
@@ -128,6 +130,8 @@ def run():
 
     results = []
     outside = []
+
+    run_label = hotspot_path.stem.replace("_hotspot_class", "")
 
     with rasterio.open(hotspot_path) as src:
         for obj_nr, nvi_klass, area_m2, east, north, biotop in REPORT_OBJECTS:
@@ -205,11 +209,11 @@ def run():
               f"{r['area_m2']/10000:>8.2f}  {r['biotop'][:30]}")
 
     # ── Figur ──
-    _plot_validation(results, outside)
+    _plot_validation(results, outside, run_label=run_label)
     print("\n[klar]")
 
 
-def _plot_validation(results, outside):
+def _plot_validation(results, outside, run_label: str):
     fig, axes = plt.subplots(1, 2, figsize=(14, 6))
     fig.suptitle(
         f"Validering mot NVI-rapport 2022:42 – Djupedal\n"
@@ -261,11 +265,19 @@ def _plot_validation(results, outside):
     ax2.set_xlim(0.5, 4.5); ax2.set_ylim(0.5, 4.5)
 
     plt.tight_layout()
-    out = FIGURES_DIR / f"{AOI_NAME}_validation_report.png"
+    out = FIGURES_DIR / f"{run_label}_validation_report.png"
     fig.savefig(out, dpi=150, bbox_inches="tight")
     print(f"\n  Figur sparad: {out.name}")
     plt.close()
 
 
 if __name__ == "__main__":
-    run()
+    parser = argparse.ArgumentParser(description="Validera hotspot-raster mot Djupedal-rapport")
+    parser.add_argument(
+        "--hotspot",
+        type=Path,
+        default=None,
+        help="Valfri sökväg till hotspot_class.tif (annars outputs/rasters/<AOI>_hotspot_class.tif)",
+    )
+    args = parser.parse_args()
+    run(hotspot_path=args.hotspot)

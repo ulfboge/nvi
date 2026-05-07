@@ -25,6 +25,7 @@ python scripts/python/generate_showcase.py
 **Valfritt — naturlager för modellbonus (nyckelbiotoper/naturkultur/sumpskog/naturvårdsavtal):**
 `python scripts/python/download_nature_layers.py` (skriver AOI-klippta GPKG + 10 m-raster i `data/raw/nature_layers/`).
 Bonusar i `compute_indices.py` styrs med `NATURE_LAYER_BONUSES=1|0` (default: på).
+Defaultvikter i `config.py` motsvarar ett kalibrerat mellanspann (`mid_1`, 2026-05-07, Kungsbacka) och kan överstyras via `NATURE_W_*` + `CONTINUITY_AGE_BLEND`.
 
 **Valfritt — SLU Skogskarta 2018 + kol 2023 (stora filer, ofta `E:/slu_gis`):** `download_data.py --slu-forest-map-confirm` och/eller `--slu-carbon-confirm` (se [PIPELINE_METOD.md](PIPELINE_METOD.md) §3). Styr rot med `SLU_GIS_LARGE_ROOT` i `.env`.
 
@@ -46,6 +47,15 @@ python scripts/python/compare_hotspot_runs.py --ref outputs\\rasters\\kungsbacka
 ```
 
 **Valfritt — artdata:** `fetch_public_observations.py` (GBIF och/eller SOS med `SOS_API_BASE` + `SOS_SUBSCRIPTION_KEY` i `.env`), `fetch_swedish_redlist_gbif.py` för rödlista-CSV, `species_overlay_a.py` mot `outputs/species/`. Detaljer i [SPECIES_RODLISTA.md](SPECIES_RODLISTA.md).
+
+**Valfritt — hitta fler NVI-GPKG-kandidater på dataportal.se:** `discover_nvi_gpkg_candidates.py --pages 5` (sparar CSV/JSON i `outputs/validation/`).
+Om direkta `.gpkg`-länkar finns i metadata: `discover_nvi_gpkg_candidates.py --pages 5 --download-direct` (laddar till `outputs/validation/dataportal_downloads/`).
+För att även scanna kandidatens landningssida efter data-endpoints: lägg till `--harvest-landing-pages`.
+För halvmanuell uppföljning: lägg till `--export-manual-checklist` (skapar `*_manual_followup.md` i `outputs/validation/`).
+För ATOM-länkar (t.ex. från Geodatakatalogen): `extract_atom_download_links.py --url "<atom-url>"` (extraherar konkreta fil-/tjänstelänkar till CSV).
+För att kontrollera vad en hämtad geodata-zip faktiskt innehåller: `inspect_geodata_zip.py --url "<zip-url>"` (skriver inventering av format/CRS-hints till CSV).
+För att extrahera `.gpkg` från en sådan zip till standardmapp: `ingest_gpkg_from_zip.py --url "<zip-url>" --name "<kort_namn>"` (sparar i `data/raw/gpkg_candidates/`).
+För att normalisera kandidat-GPKG till valideringsformat (`nvklass` 1–4): `normalize_candidate_gpkg.py --input "<gpkg>" --class-field klass --output-name "<namn>"` (med `--no-clip` om data ligger utanför aktiv AOI).
 
 **Projektstatus (Kungsbacka, arkiverad anteckning):** [docs/_archive/kungsbacka_status_och_nasta_steg.md](docs/_archive/kungsbacka_status_och_nasta_steg.md).
 
